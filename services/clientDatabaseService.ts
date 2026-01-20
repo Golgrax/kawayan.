@@ -1,0 +1,247 @@
+import { User, BrandProfile, GeneratedPost } from '../types';
+import { logger } from '../utils/logger';
+
+export class ClientDatabaseService {
+  private baseUrl = '/api';
+
+  private getHeaders(): HeadersInit {
+    const token = localStorage.getItem('kawayan_jwt');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+  }
+
+  // --- Users (Auth) ---
+  async createUser(email: string, password: string, role: 'user' | 'admin' = 'user', businessName?: string): Promise<User | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, role, businessName })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Registration failed');
+      }
+
+      const { user, token } = await response.json();
+      
+      // Store session
+      localStorage.setItem('kawayan_jwt', token);
+      localStorage.setItem('kawayan_session', JSON.stringify(user));
+      
+      return user;
+    } catch (error) {
+      logger.error('Error creating user (api)', { email, error });
+      return null;
+    }
+  }
+
+  async loginUser(email: string, password: string): Promise<{ user: User; token: string } | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const { user, token } = await response.json();
+      
+      // Store session
+      localStorage.setItem('kawayan_jwt', token);
+      localStorage.setItem('kawayan_session', JSON.stringify(user));
+      
+      return { user, token };
+    } catch (error) {
+      logger.error('Error logging in user (api)', { email, error });
+      return null;
+    }
+  }
+
+  async logoutUser(): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/auth/logout`, {
+        method: 'POST',
+        headers: this.getHeaders()
+      });
+    } catch (error) {
+      logger.error('Error logging out (api)', { error });
+    } finally {
+      localStorage.removeItem('kawayan_session');
+      localStorage.removeItem('kawayan_jwt');
+    }
+  }
+
+  async updateUserTheme(userId: string, theme: 'light' | 'dark'): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/auth/theme`, {
+        method: 'PUT',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ userId, theme })
+      });
+
+      if (!response.ok) throw new Error('Failed to update theme');
+      
+      // Update local session
+      const session = this.getCurrentUser();
+      if (session && session.id === userId) {
+        session.theme = theme;
+        localStorage.setItem('kawayan_session', JSON.stringify(session));
+      }
+    } catch (error) {
+      logger.error('Error updating theme (api)', { userId, theme, error });
+      throw error;
+    }
+  }
+
+  // Helper for synchronous access, kept for compatibility
+  getCurrentUser(): User | null {
+    try {
+      const session = localStorage.getItem('kawayan_session');
+      return session ? JSON.parse(session) : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // --- Profiles ---
+  async saveProfile(profile: BrandProfile): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/profiles`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(profile)
+      });
+
+      if (!response.ok) throw new Error('Failed to save profile');
+    } catch (error) {
+      logger.error('Error saving profile (api)', { userId: profile.userId, error });
+      throw error;
+    }
+  }
+
+  async getProfile(userId: string): Promise<BrandProfile | undefined> {
+    try {
+      const response = await fetch(`${this.baseUrl}/profiles/${userId}`, {
+        headers: this.getHeaders()
+      });
+
+      if (response.status === 404) return undefined;
+      if (!response.ok) throw new Error('Failed to fetch profile');
+
+      return await response.json();
+    } catch (error) {
+      logger.error('Error getting profile (api)', { userId, error });
+      return undefined;
+    }
+  }
+
+  // --- Posts ---
+  async savePost(post: GeneratedPost): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/posts`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(post)
+      });
+
+      if (!response.ok) throw new Error('Failed to save post');
+    } catch (error) {
+      logger.error('Error saving post (api)', { postId: post.id, error });
+      throw error;
+    }
+  }
+
+  async getUserPosts(userId: string): Promise<GeneratedPost[]> {
+    try {
+      const response = await fetch(`${this.baseUrl}/posts/user/${userId}`, {
+        headers: this.getHeaders()
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch posts');
+      return await response.json();
+    } catch (error) {
+      logger.error('Error getting user posts (api)', { userId, error });
+      return [];
+    }
+  }
+
+  async savePlan(userId: string, month: string, ideas: any[]): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/plans`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ userId, month, ideas })
+      });
+
+      if (!response.ok) throw new Error('Failed to save plan');
+    } catch (error) {
+      logger.error('Error saving plan (api)', { userId, month, error });
+      throw error;
+    }
+  }
+
+  async getPlan(userId: string, month: string): Promise<any[] | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/plans/${userId}/${month}`, {
+        headers: this.getHeaders()
+      });
+
+      if (!response.ok) return null;
+      return await response.json();
+    } catch (error) {
+      logger.error('Error getting plan (api)', { userId, month, error });
+      return null;
+    }
+  }
+
+  // --- Admin Stats ---
+  async getAdminStats(): Promise<{
+    totalUsers: number;
+    activeUsers: number;
+    totalPostsGenerated: number;
+    revenue: number;
+    revenueData: { name: string; value: number }[];
+    churnData: { name: string; value: number }[];
+  }> {
+    try {
+      const response = await fetch(`${this.baseUrl}/admin/stats`, {
+        headers: this.getHeaders()
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch stats');
+      return await response.json();
+    } catch (error) {
+      logger.error('Error getting admin stats (api)', { error });
+      return {
+        totalUsers: 0,
+        activeUsers: 0,
+        totalPostsGenerated: 0,
+        revenue: 0,
+        revenueData: [],
+        churnData: []
+      };
+    }
+  }
+
+  // --- Health Check ---
+  async healthCheck(): Promise<{ status: string; timestamp: string }> {
+    try {
+      const response = await fetch(`${this.baseUrl}/health`);
+      return await response.json();
+    } catch (error) {
+      return { status: 'unhealthy', timestamp: new Date().toISOString() };
+    }
+  }
+
+  // --- Client Detection ---
+  static isClientEnvironment(): boolean {
+    return typeof window !== 'undefined';
+  }
+}
