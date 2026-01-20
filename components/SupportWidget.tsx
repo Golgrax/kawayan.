@@ -38,20 +38,29 @@ const SupportWidget: React.FC = () => {
     }
   };
 
-  const handleSubmitTicket = (e: React.FormEvent) => {
+  const handleSubmitTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Create Ticket
     const userSession = JSON.parse(localStorage.getItem('kawayan_session') || '{}');
     if (userSession && userSession.id) {
-      const ticket = supportService.createTicket(userSession, ticketSubject, ticketPriority);
-      
-      setMode('chat');
-      setChatHistory(prev => [...prev, 
-        { sender: 'system' as const, text: `🎫 Ticket Created: #${ticket.ticketNum} - ${ticketSubject}` },
-        { sender: 'bot', text: 'I have logged your ticket. A human agent will review it shortly.' }
-      ]);
-      setTicketSubject('');
+      try {
+        const ticket = await supportService.createTicket(userSession, ticketSubject, ticketPriority);
+        
+        if (ticket) {
+          setMode('chat');
+          setChatHistory(prev => [...prev, 
+            { sender: 'system' as const, text: `🎫 Ticket Created: #${ticket.ticketNum} - ${ticketSubject}` },
+            { sender: 'bot', text: 'I have logged your ticket. A human agent will review it shortly.' }
+          ]);
+          setTicketSubject('');
+        } else {
+           alert("Failed to create ticket. Please try again.");
+        }
+      } catch (error) {
+        console.error("Ticket creation failed", error);
+        alert("An error occurred while creating the ticket.");
+      }
     } else {
       alert("Please login to submit a ticket.");
     }

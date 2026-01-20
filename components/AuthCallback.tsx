@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { socialService } from '../services/socialService';
 
 const AuthCallback: React.FC = () => {
   const { platform } = useParams<{ platform: string }>();
@@ -30,15 +31,16 @@ const AuthCallback: React.FC = () => {
         const data = await response.json();
 
         if (response.ok) {
-          // Store the connection in localStorage (Legit simulation)
-          const connections = JSON.parse(localStorage.getItem('kawayan_social_connections') || '{}');
-          connections[platform!] = {
-            connected: true,
-            connectedAt: new Date().toISOString(),
-            accessToken: data.accessToken,
-            user: data.user
-          };
-          localStorage.setItem('kawayan_social_connections', JSON.stringify(connections));
+          // Save connection to DB via SocialService
+          await socialService.connectAccount(
+            platform as 'facebook' | 'instagram' | 'tiktok', 
+            data.user?.display_name || data.user?.username || 'Connected User',
+            { 
+              accessToken: data.accessToken,
+              user: data.user,
+              connectedAt: new Date().toISOString()
+            }
+          );
           
           setStatus('success');
           setTimeout(() => navigate('/insights'), 2000);

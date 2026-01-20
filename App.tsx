@@ -11,7 +11,6 @@ import SupportWidget from './components/SupportWidget';
 import InsightsDashboard from './components/InsightsDashboard';
 import Billing from './components/Billing';
 import SupportDashboard from './components/SupportDashboard';
-import AuthCallback from './components/AuthCallback';
 import UniversalDatabaseService from './services/universalDatabaseService';
 import { LayoutDashboard, LogOut, Lock, ArrowRight, Settings as SettingsIcon, BarChart3, CreditCard } from 'lucide-react';
 
@@ -41,10 +40,9 @@ const App: React.FC = () => {
         setView(ViewState.ADMIN_LOGIN);
       }
 
-      // Check system preference for dark mode
-      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-         setDarkMode(true);
-      }
+      // Default to Light Mode (Removed auto-detection)
+      setDarkMode(false);
+      
     } catch (error) {
       console.error('Error initializing app:', error);
     }
@@ -62,7 +60,7 @@ const App: React.FC = () => {
   const handleLogin = async (loggedInUser: User) => {
     setUser(loggedInUser);
     
-    // Set theme from user preference
+    // Set theme from user preference (DB Priority)
     if (loggedInUser.theme === 'dark') {
       setDarkMode(true);
     } else {
@@ -96,6 +94,8 @@ const App: React.FC = () => {
     setUser(null);
     setBrandProfile(null);
     setView(ViewState.LANDING);
+    // Reset to default light mode on logout
+    setDarkMode(false);
   };
 
   const handleSurveyComplete = async (profileData: BrandProfile) => {
@@ -112,8 +112,19 @@ const App: React.FC = () => {
   };
 
   const handleProfileUpdate = async (profileData: BrandProfile) => {
-    await dbService.saveProfile(profileData);
-    setBrandProfile(profileData);
+    try {
+      await dbService.saveProfile(profileData);
+      // Re-fetch from DB to ensure we have exactly what was saved
+      if (user) {
+        const updated = await dbService.getProfile(user.id);
+        if (updated) {
+          setBrandProfile(updated);
+          console.log('Profile state updated from DB after save');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to sync profile update:', e);
+    }
   };
 
   const handleUserUpdate = async (updatedUser: User) => {
@@ -219,24 +230,23 @@ const App: React.FC = () => {
       <main className={`flex-grow ${view === ViewState.LOGIN || view === ViewState.SIGNUP || view === ViewState.ADMIN_LOGIN ? 'flex items-center justify-center' : ''}`}>
         <div className={`w-full ${view === ViewState.CALENDAR || view === ViewState.ADMIN_DASHBOARD || view === ViewState.SETTINGS ? 'max-w-[1600px] mx-auto py-6 px-4 sm:px-6 lg:px-8' : 'w-full'}`}>
           <Routes>
-            <Route path="/auth/callback/:platform" element={<AuthCallback />} />
             <Route path="*" element={
               (() => {
                 switch (view) {
                   case ViewState.LANDING:
                     return <LandingPage onNavigate={setView} />;
                   case ViewState.LOGIN:
-                    return <Login onLogin={handleLogin} onNavigate={setView} />;
+                    return <Login onLogin={handleLogin} onNavigate={setView} darkMode={darkMode} toggleTheme={() => updateTheme(!darkMode)} />;
                   case ViewState.SIGNUP:
-                    return <Login onLogin={handleLogin} onNavigate={setView} initialIsSignUp={true} />;
+                    return <Login onLogin={handleLogin} onNavigate={setView} initialIsSignUp={true} darkMode={darkMode} toggleTheme={() => updateTheme(!darkMode)} />;
                   case ViewState.ADMIN_LOGIN:
-                    return <Login onLogin={handleLogin} onNavigate={setView} isAdminLogin={true} />;
+                    return <Login onLogin={handleLogin} onNavigate={setView} isAdminLogin={true} darkMode={darkMode} toggleTheme={() => updateTheme(!darkMode)} />;
                   case ViewState.SURVEY:
                     return <BrandSurvey onComplete={handleSurveyComplete} />;
                   case ViewState.CALENDAR:
                     return (user && brandProfile) ? <ContentCalendar profile={brandProfile} userId={user.id} /> : <div>Loading...</div>;
                   case ViewState.SETTINGS:
-                    return (brandProfile) ? <Settings profile={brandProfile} user={user} onProfileUpdate={handleProfileUpdate} onUserUpdate={handleUserUpdate} darkMode={darkMode} toggleDarkMode={() => setDarkMode(!darkMode)} onClose={() => setView(ViewState.CALENDAR)} /> : <div>Loading...</div>;
+                    return (brandProfile) ? <Settings profile={brandProfile} user={user} onProfileUpdate={handleProfileUpdate} onUserUpdate={handleUserUpdate} darkMode={darkMode} toggleDarkMode={() => updateTheme(!darkMode)} onClose={() => setView(ViewState.CALENDAR)} /> : <div>Loading...</div>;
                   case ViewState.INSIGHTS:
                     return <InsightsDashboard />;
                   case ViewState.BILLING:

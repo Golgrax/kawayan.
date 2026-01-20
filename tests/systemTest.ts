@@ -12,7 +12,7 @@ async function testDatabaseService() {
     // Test creating a user
     const testUser = await dbService.createUser(
       'test@example.com',
-      'password123',
+      'Password123!',
       'user',
       'Test Business'
     );
@@ -21,7 +21,7 @@ async function testDatabaseService() {
       console.log('✓ User creation successful');
       
       // Test login
-      const loggedInUser = await dbService.loginUser('test@example.com', 'password123');
+      const loggedInUser = await dbService.loginUser('test@example.com', 'Password123!');
       if (loggedInUser) {
         console.log('✓ User login successful');
         
@@ -169,7 +169,8 @@ async function runAllTests() {
 }
 
 // Run tests if this file is executed directly
-if (require.main === module) {
+import { fileURLToPath } from 'url';
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runAllTests();
 }
 

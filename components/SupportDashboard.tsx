@@ -1,24 +1,27 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, CheckSquare, Clock, Activity, User, PhoneCall, Filter, Search } from 'lucide-react';
+import { MessageSquare, CheckSquare, Clock, Activity, User, PhoneCall, Filter, Search, Loader2 } from 'lucide-react';
 import { supportService } from '../services/supportService';
 import { Ticket } from '../types';
 
 const SupportDashboard: React.FC = () => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [filter, setFilter] = useState<'All' | 'Open' | 'Resolved'>('All');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     loadTickets();
-  }, []);
+  }, [filter]);
 
-  const loadTickets = () => {
-    const all = supportService.getAllTickets();
+  const loadTickets = async () => {
+    setIsLoading(true);
+    const all = await supportService.getAllTickets();
     if (filter === 'All') setTickets(all);
     else setTickets(all.filter(t => t.status === filter));
+    setIsLoading(false);
   };
 
-  const handleResolve = (id: string) => {
-    supportService.updateTicketStatus(id, 'Resolved');
+  const handleResolve = async (id: string) => {
+    await supportService.updateTicketStatus(id, 'Resolved');
     loadTickets();
   };
 
@@ -75,46 +78,54 @@ const SupportDashboard: React.FC = () => {
                   </div>
                </div>
 
-               <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-medium">
-                     <tr>
-                        <th className="px-6 py-4">User</th>
-                        <th className="px-6 py-4">Subject</th>
-                        <th className="px-6 py-4">Priority</th>
-                        <th className="px-6 py-4">Status</th>
-                        <th className="px-6 py-4 text-right">Action</th>
-                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-                     {tickets.length === 0 ? (
-                        <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400">No tickets found.</td></tr>
-                     ) : (
-                        tickets.map(ticket => (
-                           <tr key={ticket.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition">
-                              <td className="px-6 py-4">
-                                 <div className="font-bold text-slate-800 dark:text-white">{ticket.userEmail}</div>
-                                 <div className="text-[10px] text-slate-400">#{ticket.ticketNum}</div>
-                              </td>
-                              <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{ticket.subject}</td>
-                              <td className="px-6 py-4">
-                                 <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
-                                    ticket.priority === 'Critical' ? 'bg-red-100 text-red-700' :
-                                    ticket.priority === 'High' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
-                                 }`}>{ticket.priority}</span>
-                              </td>
-                              <td className="px-6 py-4">
-                                 <span className={`text-xs font-bold ${ticket.status === 'Open' ? 'text-emerald-600' : 'text-slate-400'}`}>{ticket.status}</span>
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                 {ticket.status === 'Open' && (
-                                    <button onClick={() => handleResolve(ticket.id)} className="text-emerald-600 hover:underline font-bold text-xs">Resolve</button>
-                                 )}
-                              </td>
-                           </tr>
-                        ))
-                     )}
-                  </tbody>
-               </table>
+               <div className="min-h-[300px]">
+                 {isLoading ? (
+                    <div className="flex items-center justify-center h-[300px]">
+                      <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+                    </div>
+                 ) : (
+                   <table className="w-full text-sm text-left">
+                      <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 font-medium">
+                         <tr>
+                            <th className="px-6 py-4">User</th>
+                            <th className="px-6 py-4">Subject</th>
+                            <th className="px-6 py-4">Priority</th>
+                            <th className="px-6 py-4">Status</th>
+                            <th className="px-6 py-4 text-right">Action</th>
+                         </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                         {tickets.length === 0 ? (
+                            <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-400">No tickets found.</td></tr>
+                         ) : (
+                            tickets.map(ticket => (
+                               <tr key={ticket.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition">
+                                  <td className="px-6 py-4">
+                                     <div className="font-bold text-slate-800 dark:text-white">{ticket.userEmail}</div>
+                                     <div className="text-[10px] text-slate-400">#{ticket.ticketNum}</div>
+                                  </td>
+                                  <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{ticket.subject}</td>
+                                  <td className="px-6 py-4">
+                                     <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
+                                        ticket.priority === 'Critical' ? 'bg-red-100 text-red-700' :
+                                        ticket.priority === 'High' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                                     }`}>{ticket.priority}</span>
+                                  </td>
+                                  <td className="px-6 py-4">
+                                     <span className={`text-xs font-bold ${ticket.status === 'Open' ? 'text-emerald-600' : 'text-slate-400'}`}>{ticket.status}</span>
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                     {ticket.status === 'Open' && (
+                                        <button onClick={() => handleResolve(ticket.id)} className="text-emerald-600 hover:underline font-bold text-xs">Resolve</button>
+                                     )}
+                                  </td>
+                               </tr>
+                            ))
+                         )}
+                      </tbody>
+                   </table>
+                 )}
+               </div>
             </div>
          </div>
       </div>

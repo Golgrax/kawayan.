@@ -15,7 +15,6 @@ export interface BrandProfile {
   targetAudience: string;
   brandVoice: string; 
   keyThemes: string;
-  // New fields
   brandColors?: string[]; // Array of HEX codes
   contactEmail?: string;
   contactPhone?: string;
@@ -50,6 +49,8 @@ export interface GeneratedPost {
   // New fields for governance
   regenCount: number;
   history: PostVersion[]; // Store previous versions
+  externalLink?: string;
+  publishedAt?: string;
 }
 
 export interface Ticket {

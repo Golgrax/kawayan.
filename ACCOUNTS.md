@@ -1,0 +1,13 @@
+# Kawayan AI - Account Credentials
+
+The following accounts are pre-seeded in the database for testing and development purposes.
+
+| Role | Business Name | Email | Password | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Admin** | Kawayan Admin | `admin@kawayan.ph` | `Admin123!` | Full system access. Can view all data and manage users. |
+| **Support** | Kawayan Support | `support@kawayan.ph` | `Support123!` | Access to support tickets and user assistance tools. |
+| **User** | Kapihan sa Nayon | `cafe@kawayan.ph` | `Password123!` | Sample F&B business (Coffee Shop). |
+| **User** | Panaderia de Manila | `bakery@kawayan.ph` | `Password123!` | Sample Bakery business. |
+| **User** | Gadget Hub PH | `tech@kawayan.ph` | `Password123!` | Sample Electronics/Retail business. |
+
+> **Note:** All passwords are case-sensitive. In a production environment, passwords are hashed using bcrypt and cannot be retrieved.

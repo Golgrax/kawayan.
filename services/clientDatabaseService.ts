@@ -22,8 +22,8 @@ export class ClientDatabaseService {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Registration failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.message || 'Registration failed');
       }
 
       const { user, token } = await response.json();
@@ -35,7 +35,7 @@ export class ClientDatabaseService {
       return user;
     } catch (error) {
       logger.error('Error creating user (api)', { email, error });
-      return null;
+      throw error;
     }
   }
 
@@ -48,7 +48,8 @@ export class ClientDatabaseService {
       });
 
       if (!response.ok) {
-        return null;
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.message || 'Login failed');
       }
 
       const { user, token } = await response.json();
@@ -60,7 +61,7 @@ export class ClientDatabaseService {
       return { user, token };
     } catch (error) {
       logger.error('Error logging in user (api)', { email, error });
-      return null;
+      throw error;
     }
   }
 
@@ -96,6 +97,24 @@ export class ClientDatabaseService {
       }
     } catch (error) {
       logger.error('Error updating theme (api)', { userId, theme, error });
+      throw error;
+    }
+  }
+
+  async updateUserPassword(userId: string, newPassword: string): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/auth/password`, {
+        method: 'PUT',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ userId, newPassword })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update password');
+      }
+    } catch (error) {
+      logger.error('Error updating password (api)', { userId, error });
       throw error;
     }
   }

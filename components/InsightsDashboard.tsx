@@ -1,311 +1,262 @@
 import React, { useEffect, useState } from 'react';
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Users, Eye, MousePointer, Share2, Activity, Link as LinkIcon, AlertCircle, Loader2, Download, Trash2, X } from 'lucide-react';
+import { 
+  Users, RefreshCcw, ExternalLink, Heart, 
+  Image as ImageIcon, UserPlus, Zap, BarChart3,
+  Facebook, Instagram, MessageCircle, X, Eye, 
+  UserMinus, MousePointer2, TrendingUp
+} from 'lucide-react';
 import { socialService, SocialPlatformData } from '../services/socialService';
-import UniversalDatabaseService from '../services/universalDatabaseService';
-import { GeneratedPost } from '../types';
 
 const InsightsDashboard: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [connections, setConnections] = useState<{facebook: boolean, instagram: boolean, tiktok: boolean}>({facebook: false, instagram: false, tiktok: false});
+  const [loading, setLoading] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [targetPlatform, setTargetPlatform] = useState<'facebook' | 'instagram' | 'tiktok' | null>(null);
+  const [modalUsername, setModalUsername] = useState('');
   const [platformData, setPlatformData] = useState<SocialPlatformData[]>([]);
-  const [dbService] = useState(() => new UniversalDatabaseService());
-  
-  // Data for Charts
-  const [postData, setPostData] = useState<GeneratedPost[]>([]);
-  const [topicData, setTopicData] = useState<{name: string, value: number}[]>([]);
-  const [activityData, setActivityData] = useState<{name: string, posts: number, projectedReach: number}[]>([]);
-  const [totalReach, setTotalReach] = useState(0);
-
-  // Modals
-  const [showManageModal, setShowManageModal] = useState(false);
 
   useEffect(() => {
     loadData();
+    
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === 'KAWAYAN_STATS_UPDATED_CLIENT') {
+        const stats = event.data.data;
+        socialService.updateStats(stats.platform, stats);
+        loadData();
+        setLoading(false);
+        setShowSyncModal(false);
+        setModalUsername('');
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
   }, []);
 
   const loadData = async () => {
-    setLoading(true);
-    
-    // Social Connections
-    const status = socialService.getConnectionStatus();
-    setConnections(status);
-
     const data: SocialPlatformData[] = [];
-    if (status.facebook) {
-      const fb = await socialService.getInsights('facebook');
-      if (fb) data.push(fb);
-    }
-    if (status.instagram) {
-      const ig = await socialService.getInsights('instagram');
-      if (ig) data.push(ig);
-    }
-    if (status.tiktok) {
-      const tt = await socialService.getInsights('tiktok');
-      if (tt) data.push(tt);
+    const status = await socialService.fetchConnectionStatus();
+    const platforms: ('facebook' | 'instagram' | 'tiktok')[] = ['facebook', 'instagram', 'tiktok'];
+    
+    for (const p of platforms) {
+      if (status[p]) {
+        const insights = await socialService.getInsights(p);
+        if (insights) data.push(insights);
+      }
     }
     setPlatformData(data);
-
-    // Internal Post Data
-    const currentUser = dbService.getCurrentUser();
-    const posts = currentUser ? await dbService.getUserPosts(currentUser.id) : [];
-    setPostData(posts);
-
-    // Aggregate Topics
-    const topics: Record<string, number> = {};
-    posts.forEach((p: GeneratedPost) => {
-      const t = p.topic || 'General';
-      topics[t] = (topics[t] || 0) + 1;
-    });
-    setTopicData(Object.keys(topics).map(key => ({ name: key, value: topics[key] })).slice(0, 5));
-
-    // Aggregate Activity
-    const activity: Record<string, {posts: number, reach: number}> = {};
-    let reachSum = 0;
-
-    posts.forEach((p: GeneratedPost) => {
-      const date = new Date(p.date);
-      const key = date.toLocaleString('default', { month: 'short' });
-      if (!activity[key]) activity[key] = { posts: 0, reach: 0 };
-      
-      activity[key].posts += 1;
-      const estimatedReach = (p.viralityScore || 50) * 12; 
-      activity[key].reach += estimatedReach;
-      reachSum += estimatedReach;
-    });
-
-    const sortedMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    setActivityData(Object.keys(activity)
-      .sort((a, b) => sortedMonths.indexOf(a) - sortedMonths.indexOf(b))
-      .map(key => ({
-        name: key,
-        posts: activity[key].posts,
-        projectedReach: activity[key].reach
-      }))
-    );
-    setTotalReach(reachSum);
-
-    setLoading(false);
   };
 
-  const handleConnect = async (platform: 'facebook' | 'instagram' | 'tiktok') => {
-    try {
-      await socialService.connectAccount(platform);
-      // The user is redirected, so we don't need to manually update state here.
-    } catch (error) {
-      console.error('Failed to connect:', error);
+  const openSyncModal = (platform: 'facebook' | 'instagram' | 'tiktok') => {
+    const existing = platformData.find(p => p.platform === platform);
+    if (existing && existing.username) {
+        // If already connected, just sync directly without modal
+        handleSync(platform, existing.username);
+    } else {
+        setTargetPlatform(platform);
+        setShowSyncModal(true);
     }
+  };
+
+  const handleSync = async (platform: 'facebook' | 'instagram' | 'tiktok', username: string) => {
+    setLoading(true);
+    await socialService.connectAccount(platform, username);
+    window.postMessage({
+      type: 'KAWAYAN_UPDATE_STATS',
+      platform: platform,
+      username: username
+    }, '*');
   };
 
   const handleDisconnect = async (platform: string) => {
-    if (window.confirm(`Are you sure you want to disconnect ${platform}? You will lose access to its insights.`)) {
+    if (window.confirm(`Disconnect ${platform}?`)) {
       await socialService.disconnectAccount(platform);
-      await loadData();
+      loadData();
     }
   };
 
-  const handleExport = () => {
-    const headers = "Month,Posts,Projected Reach\n";
-    const rows = activityData.map(d => `${d.name},${d.posts},${d.projectedReach}`).join("\n");
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Kawayan_Insights_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-  };
-
-  if (loading) {
-    return (
-      <div className="flex h-96 items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+  const MetricBox = ({ label, value, icon: Icon, color }: any) => (
+    <div className="bg-slate-50 dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center text-center">
+      <div className={`${color} mb-1 opacity-80`}>
+        <Icon className="w-4 h-4" />
       </div>
-    );
-  }
-
-  // EMPTY STATE
-  if (!connections.facebook && !connections.instagram && !connections.tiktok) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh] space-y-6 text-center animate-in fade-in">
-        <div className="p-6 bg-slate-100 dark:bg-slate-800 rounded-full">
-          <LinkIcon className="w-12 h-12 text-slate-400" />
-        </div>
-        <div className="max-w-md">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Connect Your Channels</h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-2">
-            To view real insights, you need to connect your social media accounts. We use the official Graph API to fetch your data securely.
-          </p>
-        </div>
-        <div className="flex flex-wrap justify-center gap-4">
-          <button 
-            onClick={() => handleConnect('facebook')}
-            className="flex items-center gap-2 bg-[#1877F2] text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg hover:shadow-xl hover:-translate-y-1"
-          >
-            Connect Facebook
-          </button>
-          <button 
-            onClick={() => handleConnect('instagram')}
-            className="flex items-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-xl font-bold hover:opacity-90 transition shadow-lg hover:shadow-xl hover:-translate-y-1"
-          >
-            Connect Instagram
-          </button>
-          <button 
-            onClick={() => handleConnect('tiktok')}
-            className="flex items-center gap-2 bg-black text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-900 transition shadow-lg hover:shadow-xl hover:-translate-y-1"
-          >
-            Connect TikTok
-          </button>
-        </div>
-        <p className="text-xs text-slate-400 mt-4 flex items-center gap-1">
-          <AlertCircle className="w-3 h-3" /> No data is stored on our servers. Read our Privacy Policy.
-        </p>
-      </div>
-    );
-  }
-
-  // Aggregate Data for Charts
-  const totalFollowers = platformData.reduce((acc, curr) => acc + curr.followers, 0);
-  const avgEngagement = (platformData.reduce((acc, curr) => acc + curr.engagement, 0) / (platformData.length || 1)).toFixed(1);
-  const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'];
+      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tight mb-1">{label}</p>
+      <p className="text-lg font-black text-slate-900 dark:text-white leading-none">
+        {typeof value === 'number' ? value.toLocaleString() : value || '0'}
+      </p>
+    </div>
+  );
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
-      
-      {/* Manage Connections Modal */}
-      {showManageModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-           <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-lg dark:text-white">Manage Connections</h3>
-                <button onClick={() => setShowManageModal(false)}><X className="w-5 h-5 text-slate-400"/></button>
+    <div className="max-w-6xl mx-auto py-10 px-4 space-y-12 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+        <div className="text-center md:text-left space-y-1">
+          <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight">Social Insights</h1>
+          <p className="text-slate-500 font-medium">Automated data sync via Kawayan Extension.</p>
+        </div>
+
+        <div className="flex bg-white dark:bg-slate-800 p-2 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-700 gap-2">
+            {[
+              { id: 'facebook', icon: Facebook, color: 'hover:bg-[#1877F2]' },
+              { id: 'instagram', icon: Instagram, color: 'hover:bg-gradient-to-tr hover:from-[#f09433] hover:via-[#dc2743] hover:to-[#bc1888]' },
+              { id: 'tiktok', icon: MessageCircle, color: 'hover:bg-black' }
+            ].map((p) => (
+              <button 
+                key={p.id}
+                onClick={() => openSyncModal(p.id as any)}
+                className={`p-4 rounded-2xl transition-all ${p.color} hover:text-white text-slate-400 bg-slate-50 dark:bg-slate-900 flex items-center gap-2 font-bold text-sm shadow-sm`}
+              >
+                <p.icon className="w-5 h-5" />
+                <span className="hidden sm:inline capitalize">Add {p.id}</span>
+              </button>
+            ))}
+        </div>
+      </div>
+
+      {/* Main Stats Display */}
+      <div className="grid grid-cols-1 gap-8">
+        {platformData.length === 0 ? (
+          <div className="py-32 text-center bg-white dark:bg-slate-800/50 rounded-[3rem] border-2 border-dashed border-slate-200 dark:border-slate-700">
+            <BarChart3 className="w-16 h-16 text-slate-200 dark:text-slate-700 mx-auto mb-4" />
+            <h3 className="text-xl font-bold text-slate-400">No Channels Connected</h3>
+            <p className="text-slate-500 text-sm mt-1">Select a platform above to start syncing your data.</p>
+          </div>
+        ) : (
+          platformData.map((data) => (
+            <div key={data.platform} className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden group">
+              <div className="flex flex-col lg:flex-row">
+                {/* Header Sidebar */}
+                <div className={`lg:w-64 p-8 flex flex-col justify-between items-center text-center border-b lg:border-b-0 lg:border-r border-slate-100 dark:border-slate-700 ${
+                  data.platform === 'facebook' ? 'bg-blue-50/30' : 
+                  data.platform === 'instagram' ? 'bg-rose-50/30' : 
+                  'bg-slate-50/30'
+                }`}>
+                  <div className="space-y-4">
+                    <div className={`p-5 rounded-3xl shadow-2xl mx-auto w-fit ${
+                      data.platform === 'facebook' ? 'bg-[#1877F2]' : 
+                      data.platform === 'instagram' ? 'bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888]' : 
+                      'bg-black'
+                    } text-white`}>
+                      {data.platform === 'facebook' ? <Facebook className="w-8 h-8" /> : 
+                       data.platform === 'instagram' ? <Instagram className="w-8 h-8" /> : 
+                       <MessageCircle className="w-8 h-8" />}
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-slate-900 dark:text-white capitalize">{data.platform}</h3>
+                      <p className="text-sm font-bold text-emerald-500">@{data.username}</p>
+                    </div>
+                  </div>
+
+                  <div className="w-full space-y-2 mt-8">
+                    <button 
+                      onClick={() => handleSync(data.platform as any, data.username || '')}
+                      className="w-full py-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl text-xs font-bold text-slate-600 dark:text-slate-200 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 transition-all flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      <RefreshCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+                    </button>
+                    <button 
+                      onClick={() => handleDisconnect(data.platform)}
+                      className="w-full py-3 text-xs font-bold text-slate-400 hover:text-rose-500 transition-colors"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+
+                {/* Detailed Metrics Grid */}
+                <div className="flex-1 p-8 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
+                  <MetricBox label="Followers" value={data.followers} icon={Users} color="text-indigo-500" />
+                  
+                  {data.platform === 'facebook' && (
+                    <>
+                      <MetricBox label="Views" value={(data as any).views} icon={Eye} color="text-emerald-500" />
+                      <MetricBox label="Viewers" value={(data as any).viewers} icon={Users} color="text-blue-500" />
+                      <MetricBox label="Interactions" value={(data as any).interactions} icon={Heart} color="text-rose-500" />
+                      <MetricBox label="Visits" value={(data as any).visits} icon={MousePointer2} color="text-amber-500" />
+                      <MetricBox label="Follows" value={(data as any).follows} icon={UserPlus} color="text-cyan-500" />
+                      <MetricBox label="Unfollows" value={(data as any).unfollows} icon={UserMinus} color="text-slate-400" />
+                      <MetricBox label="Net Follows" value={(data as any).netFollows} icon={TrendingUp} color="text-green-500" />
+                    </>
+                  )}
+
+                  {data.platform === 'instagram' && (
+                    <>
+                      <MetricBox label="Following" value={data.following} icon={UserPlus} color="text-purple-500" />
+                      <MetricBox label="Posts" value={(data as any).posts} icon={ImageIcon} color="text-orange-500" />
+                    </>
+                  )}
+
+                  {data.platform === 'tiktok' && (
+                    <>
+                      <MetricBox label="Likes" value={data.likes} icon={Heart} color="text-rose-500" />
+                      <MetricBox label="Following" value={data.following} icon={UserPlus} color="text-purple-500" />
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="space-y-3">
-                 {Object.entries(connections).map(([platform, isConnected]) => (
-                   <div key={platform} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-100 dark:border-slate-700">
-                      <div className="flex items-center gap-3">
-                         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                         <span className="capitalize font-medium text-slate-700 dark:text-slate-200">{platform}</span>
-                      </div>
-                      {isConnected ? (
-                        <button onClick={() => handleDisconnect(platform)} className="text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 px-2 py-1 rounded transition flex items-center gap-1">
-                          <Trash2 className="w-3 h-3" /> Disconnect
-                        </button>
-                      ) : (
-                        <button onClick={() => { setShowManageModal(false); handleConnect(platform as any); }} className="text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 px-2 py-1 rounded transition">
-                          Connect
-                        </button>
-                      )}
-                   </div>
-                 ))}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Sync Modal */}
+      {showSyncModal && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl relative animate-in zoom-in-95 duration-200">
+            <button 
+              onClick={() => setShowSyncModal(false)}
+              className="absolute top-6 right-6 p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center mb-8">
+              <div className={`w-20 h-20 rounded-3xl mx-auto mb-4 flex items-center justify-center text-white shadow-2xl ${
+                targetPlatform === 'facebook' ? 'bg-[#1877F2]' : 
+                targetPlatform === 'instagram' ? 'bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888]' : 
+                'bg-black'
+              }`}>
+                {targetPlatform === 'facebook' ? <Facebook className="w-10 h-10" /> : 
+                 targetPlatform === 'instagram' ? <Instagram className="w-10 h-10" /> : 
+                 <MessageCircle className="w-10 h-10" />}
               </div>
-           </div>
+              <h2 className="text-2xl font-black text-slate-900 dark:text-white capitalize">Connect {targetPlatform}</h2>
+              <p className="text-slate-500 mt-1">Enter your handle to begin syncing.</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-lg">@</span>
+                <input 
+                  type="text" 
+                  autoFocus
+                  value={modalUsername}
+                  onChange={(e) => setModalUsername(e.target.value)}
+                  placeholder="username"
+                  className="w-full pl-10 pr-6 py-5 bg-slate-50 dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-700 rounded-3xl text-lg font-bold outline-none focus:border-emerald-500 transition-all"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSync(targetPlatform!, modalUsername)}
+                />
+              </div>
+              <button 
+                onClick={() => handleSync(targetPlatform!, modalUsername)}
+                className="w-full py-5 bg-emerald-600 text-white rounded-3xl font-black text-lg hover:bg-emerald-700 transition shadow-xl shadow-emerald-600/20"
+              >
+                Start Data Sync
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-        <div>
-           <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Performance Overview</h1>
-           <p className="text-slate-500 dark:text-slate-400 mt-1">Real-time data from connected APIs.</p>
-        </div>
-        <div className="flex gap-2">
-           <button onClick={() => setShowManageModal(true)} className="bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition">
-             Manage Connections
-           </button>
-           <button onClick={handleExport} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 transition shadow-sm flex items-center gap-2">
-             <Download className="w-4 h-4" /> Export Report
-           </button>
-        </div>
-      </div>
-
-      {/* KPI Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-         {[
-           { label: 'Total Audience', value: totalFollowers.toLocaleString(), icon: Users, color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-900/20' },
-           { label: 'Avg Engagement', value: `${avgEngagement}%`, icon: MousePointer, color: 'text-purple-500', bg: 'bg-purple-50 dark:bg-purple-900/20' },
-           { label: 'Connected', value: platformData.length.toString(), icon: LinkIcon, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-           { label: 'Health', value: 'Good', icon: Activity, color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/20' },
-         ].map((stat, i) => (
-           <div key={i} className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
-              <div className="flex justify-between items-start mb-4">
-                 <div className={`p-3 rounded-lg ${stat.bg} ${stat.color}`}>
-                    <stat.icon className="w-5 h-5" />
-                 </div>
-              </div>
-              <h3 className="text-2xl font-black text-slate-900 dark:text-white">{stat.value}</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wider mt-1">{stat.label}</p>
+      {loading && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[110] flex flex-col items-center justify-center text-white">
+           <div className="w-20 h-20 bg-emerald-500 rounded-3xl flex items-center justify-center shadow-2xl animate-bounce mb-6">
+              <RefreshCcw className="w-10 h-10 text-white animate-spin" />
            </div>
-         ))}
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        
-        {/* Reach Projection */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-           <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2">
-             <TrendingUp className="w-5 h-5 text-emerald-500" /> Projected Monthly Reach
-           </h3>
-           <div className="h-80 w-full">
-             <ResponsiveContainer width="100%" height="100%">
-               <AreaChart data={activityData}>
-                 <defs>
-                   <linearGradient id="colorReach" x1="0" y1="0" x2="0" y2="1">
-                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                   </linearGradient>
-                 </defs>
-                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.5} />
-                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                 <Tooltip contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                 <Area type="monotone" dataKey="projectedReach" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorReach)" />
-               </AreaChart>
-             </ResponsiveContainer>
-           </div>
+           <p className="text-2xl font-black">Syncing Live Data...</p>
+           <p className="text-slate-300 mt-2">The extension is working its magic.</p>
         </div>
-
-        {/* Topic Distribution */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-           <h3 className="font-bold text-slate-800 dark:text-white mb-6">Top Content Themes</h3>
-           <div className="h-80 w-full flex items-center justify-center">
-             {topicData.length > 0 ? (
-               <ResponsiveContainer width="100%" height="100%">
-                 <PieChart>
-                   <Pie
-                     data={topicData}
-                     cx="50%"
-                     cy="50%"
-                     innerRadius={60}
-                     outerRadius={100}
-                     fill="#8884d8"
-                     paddingAngle={5}
-                     dataKey="value"
-                   >
-                     {topicData.map((entry, index) => (
-                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                     ))}
-                   </Pie>
-                   <Tooltip />
-                 </PieChart>
-               </ResponsiveContainer>
-             ) : (
-               <div className="text-slate-400 text-sm">No posts generated yet.</div>
-             )}
-           </div>
-           <div className="flex flex-wrap justify-center gap-4 mt-4">
-              {topicData.map((entry, index) => (
-                <div key={index} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-                  <div className="w-3 h-3 rounded-full" style={{backgroundColor: COLORS[index % COLORS.length]}}></div>
-                  {entry.name}
-                </div>
-              ))}
-           </div>
-        </div>
-
-      </div>
+      )}
     </div>
   );
 };
 
 export default InsightsDashboard;
-

@@ -5,7 +5,7 @@ import UniversalDatabaseService from '../services/universalDatabaseService';
 import { 
   Loader2, Plus, Wand2, Image as ImageIcon, RefreshCcw, Flame, 
   ThumbsUp, MessageCircle, Share2, MoreHorizontal, LayoutList, LayoutGrid, 
-  Save, Check, ChevronLeft, ChevronRight, Maximize2, Columns, Minimize2
+  Save, Check, ChevronLeft, ChevronRight, Maximize2, Columns, Minimize2, X
 } from 'lucide-react';
 
 interface Props {
@@ -94,6 +94,7 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [generatingPost, setGeneratingPost] = useState(false);
   const [generatedContent, setGeneratedContent] = useState<GeneratedPost | null>(null);
+  const [showPostModal, setShowPostModal] = useState(false);
   const [loadingImage, setLoadingImage] = useState(false);
   const [trendingTopics, setTrendingTopics] = useState<string[]>([]);
   const [posts, setPosts] = useState<GeneratedPost[]>([]);
@@ -142,7 +143,9 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
     
     const existingPost = posts.find(p => {
        const d = new Date(p.date);
-       return d.getDate() === day && d.getMonth() === currentDate.getMonth();
+       return d.getDate() === day && 
+              d.getMonth() === currentDate.getMonth() &&
+              d.getFullYear() === currentDate.getFullYear();
     });
 
     if (existingPost) {
@@ -185,10 +188,13 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
            };
         } else {
            // New Post
+           // Use Local Date Formatting instead of UTC to prevent "jumps"
+           const localDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(idea.day).padStart(2, '0')}`;
+           
            return {
             id: Date.now().toString(),
             userId,
-            date: new Date(currentDate.getFullYear(), currentDate.getMonth(), idea.day).toISOString().split('T')[0],
+            date: localDate,
             topic: idea.topic,
             caption: result.caption,
             imagePrompt: result.imagePrompt,
@@ -255,28 +261,134 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
     setLoadingImage(false);
   };
 
-  const handleSavePost = async () => {
-    if (generatedContent) {
+  const handleSavePost = async (postToSave?: GeneratedPost) => {
+    const target = postToSave || generatedContent;
+    if (target) {
       try {
-        console.log('Saving post:', generatedContent.id);
-        await dbService.savePost(generatedContent);
+        console.log('Saving post:', target.id, target.status);
+        await dbService.savePost(target);
+        
+        // Update both the list and the active editor state
         setPosts(prev => {
-          const idx = prev.findIndex(p => p.id === generatedContent.id);
+          const idx = prev.findIndex(p => p.id === target.id);
           if (idx >= 0) {
             const newPosts = [...prev];
-            newPosts[idx] = generatedContent;
+            newPosts[idx] = target;
             return newPosts;
           }
-          return [...prev, generatedContent];
+          return [...prev, target];
         });
+
+        if (generatedContent && generatedContent.id === target.id) {
+          setGeneratedContent(target);
+        }
+
         console.log('Post saved successfully');
-        alert("Post Saved to Database!");
+        if (!postToSave) alert("Post Saved to Database!");
       } catch (error) {
         console.error('Error saving post:', error);
         alert("Failed to save post. Please try again.");
       }
     }
   };
+
+  const downloadImage = async (url: string, filename: string) => {
+    try {
+      // If it's base64, we can download directly
+      if (url.startsWith('data:')) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+
+      // Try fetching for blob (works if CORS allowed)
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      console.warn("Direct download failed, opening in new tab", e);
+      window.open(url, '_blank');
+    }
+  };
+
+  const handlePostNow = async (platform: 'tiktok' | 'facebook' | 'instagram') => {
+    if (!generatedContent) return;
+    
+    // 1. Force save to DB and State first so it exists in the calendar
+    await handleSavePost(generatedContent);
+
+    // 2. Trigger Download
+    if (generatedContent.imageUrl) {
+      const filename = `kawayan_${platform}_${generatedContent.date}_${Date.now()}.png`;
+      downloadImage(generatedContent.imageUrl, filename);
+    }
+
+    // 3. Send Message to Extension
+    window.postMessage({
+      type: 'KAWAYAN_POST_REQUEST',
+      data: {
+        id: generatedContent.id, // Pass ID for tracking
+        title: generatedContent.topic, // Pass topic as title
+        caption: generatedContent.caption,
+        imageUrl: generatedContent.imageUrl,
+        platform: platform
+      }
+    }, '*');
+    
+    setShowPostModal(false);
+  };
+
+  // Listen for Post Success from Extension
+  useEffect(() => {
+    const handleExtensionMessage = async (event: MessageEvent) => {
+      if (event.data.type === 'KAWAYAN_POST_SUCCESS_CLIENT') {
+        const { postId, platform, link } = event.data.data;
+        console.log("Received post success from extension:", postId, platform, link);
+        
+        setPosts(currentPosts => {
+          const postIndex = currentPosts.findIndex(p => p.id === postId);
+          
+          // If for some reason it's not in the list, we can't update it easily here 
+          // without the full object, but handlePostNow ensures it's there.
+          if (postIndex !== -1) {
+            const updatedPost = { 
+              ...currentPosts[postIndex], 
+              status: 'Published' as const,
+              publishedAt: new Date().toISOString(),
+              externalLink: link 
+            };
+            
+            // Update DB
+            dbService.savePost(updatedPost).catch(e => console.error("Failed to update post status in DB", e));
+            
+            // If this is the currently viewed post, update the editor too
+            if (generatedContent && generatedContent.id === postId) {
+              setGeneratedContent(updatedPost);
+            }
+
+            const newPosts = [...currentPosts];
+            newPosts[postIndex] = updatedPost;
+            return newPosts;
+          }
+          return currentPosts;
+        });
+      }
+    };
+
+    window.addEventListener('message', handleExtensionMessage);
+    return () => window.removeEventListener('message', handleExtensionMessage);
+  }, [generatedContent, dbService]);
 
   // --- Calendar Grid Helpers ---
   const getDaysInMonth = (date: Date) => {
@@ -301,8 +413,11 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
     for (let day = 1; day <= totalDays; day++) {
       const idea = ideas.find(i => i.day === day);
       const post = posts.find(p => {
-         const d = new Date(p.date);
-         return d.getDate() === day && d.getMonth() === currentDate.getMonth();
+         // p.date is YYYY-MM-DD
+         const [y, m, d] = p.date.split('-').map(Number);
+         return d === day && 
+                (m - 1) === currentDate.getMonth() && 
+                y === currentDate.getFullYear();
       });
       const isSelected = selectedDay === day;
 
@@ -316,7 +431,7 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
           
           {post ? (
              <div className="mt-1 p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-200 dark:border-emerald-800 text-[10px] text-emerald-800 dark:text-emerald-300 font-medium truncate shadow-sm">
-                {post.status === 'Scheduled' && <Check className="w-3 h-3 inline mr-1"/>}
+                {(post.status === 'Scheduled' || post.status === 'Published') && <Check className="w-3 h-3 inline mr-1"/>}
                 {post.topic}
              </div>
           ) : idea ? (
@@ -348,33 +463,60 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
   return (
     <div className="flex flex-col h-[calc(100vh-100px)] gap-6">
       
-      {/* Top Bar: Trends & Controls */}
-      <div className="flex flex-col lg:flex-row gap-4 justify-between items-start lg:items-center bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm transition-colors">
-         <div className="flex items-center gap-3 w-full lg:w-auto overflow-hidden">
-             <div className="flex flex-shrink-0 items-center gap-2 px-3 py-1.5 bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-full border border-orange-100 dark:border-orange-800 text-xs font-bold uppercase tracking-wider">
-               <Flame className="w-3 h-3" /> Trending
-             </div>
-             <div className="flex gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
-               {trendingTopics.map((t, i) => (
-                 <span key={i} className="text-sm text-slate-600 dark:text-slate-300 font-medium whitespace-nowrap bg-slate-50 dark:bg-slate-700 px-2 py-1 rounded-md border border-slate-100 dark:border-slate-600">#{t.replace(/\s+/g, '')}</span>
-               ))}
-             </div>
-         </div>
-         <div className="flex items-center gap-2 flex-shrink-0 ml-auto lg:ml-0">
-            {/* View Mode Grid/List */}
-            <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-lg mr-2">
-              <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-white dark:bg-slate-600 shadow text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}><LayoutGrid className="w-4 h-4" /></button>
-              <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-white dark:bg-slate-600 shadow text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}><LayoutList className="w-4 h-4" /></button>
+      {/* Post Modal */}
+      {showPostModal && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-slate-200 dark:border-slate-700">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">Post to...</h3>
+              <button onClick={() => setShowPostModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-full transition">
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
             </div>
             
-            {/* Layout Toggles */}
-            <div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-lg">
-               <button onClick={() => setLayoutMode('calendar')} title="Full Calendar" className={`p-1.5 rounded-md transition ${layoutMode === 'calendar' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}><Maximize2 className="w-4 h-4" /></button>
-               <button onClick={() => setLayoutMode('split')} title="Split View" className={`p-1.5 rounded-md transition ${layoutMode === 'split' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}><Columns className="w-4 h-4" /></button>
-               <button onClick={() => setLayoutMode('focus')} title="Focus Editor" className={`p-1.5 rounded-md transition ${layoutMode === 'focus' ? 'bg-white dark:bg-slate-600 shadow text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`}><Minimize2 className="w-4 h-4" /></button>
+            <div className="space-y-3">
+              <button 
+                onClick={() => handlePostNow('tiktok')}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition group"
+              >
+                <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition">
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1-.1z"/></svg>
+                </div>
+                <div className="text-left">
+                  <span className="block font-bold text-slate-900 dark:text-white">TikTok</span>
+                  <span className="text-xs text-slate-500">Auto-fill caption supported</span>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => handlePostNow('facebook')}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition group"
+              >
+                <div className="w-10 h-10 bg-[#1877F2] rounded-full flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition">
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+                </div>
+                <div className="text-left">
+                  <span className="block font-bold text-slate-900 dark:text-white">Facebook</span>
+                  <span className="text-xs text-slate-500">Opens Creator Studio</span>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => handlePostNow('instagram')}
+                className="w-full flex items-center gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition group"
+              >
+                <div className="w-10 h-10 bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] rounded-full flex items-center justify-center text-white shrink-0 group-hover:scale-110 transition">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                </div>
+                <div className="text-left">
+                  <span className="block font-bold text-slate-900 dark:text-white">Instagram</span>
+                  <span className="text-xs text-slate-500">Opens Create Post</span>
+                </div>
+              </button>
             </div>
-         </div>
-      </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 flex-1 overflow-hidden">
         
@@ -571,8 +713,17 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
                          )}
                          
                          <div className="mb-6 p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
-                            <p className="font-bold mb-1 uppercase text-[10px]">Image Prompt Used:</p>
-                            <p className="italic opacity-70 mb-2">{generatedContent.imagePrompt}</p>
+                            <p className="font-bold mb-2 uppercase text-[10px] flex justify-between items-center">
+                               <span>Image Prompt Used:</span>
+                               <span className="text-[9px] font-normal opacity-50 italic">Editable</span>
+                            </p>
+                            <textarea 
+                               className="w-full bg-slate-50 dark:bg-slate-900 border-none rounded-lg p-2 text-xs italic opacity-80 focus:opacity-100 focus:ring-1 focus:ring-emerald-500 transition-all resize-none text-slate-600 dark:text-slate-300"
+                               rows={3}
+                               value={generatedContent.imagePrompt}
+                               onChange={(e) => setGeneratedContent({...generatedContent, imagePrompt: e.target.value})}
+                               placeholder="Describe the image you want..."
+                            />
                          </div>
                      </div>
 
@@ -646,7 +797,7 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
               {/* Footer Actions */}
               <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex gap-3">
                  <button 
-                    onClick={handleSavePost}
+                    onClick={() => handleSavePost()}
                     disabled={!generatedContent}
                     className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-700 transition text-sm flex items-center justify-center gap-2"
                  >
@@ -661,13 +812,24 @@ const ContentCalendar: React.FC<Props> = ({ profile, userId }) => {
                    }`}
                    onClick={() => {
                      if(generatedContent) {
-                       setGeneratedContent({...generatedContent, status: 'Scheduled'});
-                       handleSavePost();
+                       const updated = {...generatedContent, status: 'Scheduled' as const};
+                       handleSavePost(updated);
                        alert("Post Scheduled Successfully! 🚀");
                      }
                    }}
                  >
                    {generatedContent?.status === 'Scheduled' ? 'Scheduled' : 'Schedule'}
+                 </button>
+                 <button 
+                    onClick={() => {
+                      if (!generatedContent) return;
+                      // Open modal instead of sending message directly
+                      setShowPostModal(true);
+                    }}
+                    disabled={!generatedContent}
+                    className="flex-1 py-3 rounded-xl border border-indigo-200 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition text-sm flex items-center justify-center gap-2"
+                 >
+                   <Share2 className="w-4 h-4"/> Post Now
                  </button>
               </div>
             </div>

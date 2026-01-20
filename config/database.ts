@@ -32,6 +32,13 @@ export class DatabaseConfig {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Migration for users
+    const userInfo = this.db.prepare("PRAGMA table_info(users)").all() as any[];
+    if (!userInfo.some(col => col.name === 'theme')) {
+      console.log('Migration: Adding theme to users');
+      this.db.exec("ALTER TABLE users ADD COLUMN theme TEXT DEFAULT 'light'");
+    }
     
     // Brand profiles table
     this.db.exec(`
@@ -43,11 +50,30 @@ export class DatabaseConfig {
         target_audience TEXT NOT NULL,
         brand_voice TEXT NOT NULL,
         key_themes TEXT NOT NULL,
+        brand_colors TEXT,
+        contact_email TEXT,
+        contact_phone TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
+
+    // Migration for brand_profiles
+    const profileInfo = this.db.prepare("PRAGMA table_info(brand_profiles)").all() as any[];
+    if (!profileInfo.some(col => col.name === 'brand_colors')) {
+      console.log('Migration: Adding brand_colors to brand_profiles');
+      this.db.exec("ALTER TABLE brand_profiles ADD COLUMN brand_colors TEXT");
+    }
+    if (!profileInfo.some(col => col.name === 'contact_email')) {
+      console.log('Migration: Adding contact_email to brand_profiles');
+      this.db.exec("ALTER TABLE brand_profiles ADD COLUMN contact_email TEXT");
+    }
+    if (!profileInfo.some(col => col.name === 'contact_phone')) {
+      console.log('Migration: Adding contact_phone to brand_profiles');
+      this.db.exec("ALTER TABLE brand_profiles ADD COLUMN contact_phone TEXT");
+    }
+
     
     // Generated posts table
     this.db.exec(`
@@ -63,11 +89,27 @@ export class DatabaseConfig {
         virality_score INTEGER CHECK (virality_score >= 0 AND virality_score <= 100),
         virality_reason TEXT,
         format TEXT,
+        external_link TEXT,
+        published_at DATETIME,
+        regen_count INTEGER DEFAULT 0,
+        history TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
+
+    // Migration: Add columns if they don't exist
+    const tableInfo = this.db.prepare("PRAGMA table_info(generated_posts)").all() as any[];
+    const hasExternalLink = tableInfo.some(col => col.name === 'external_link');
+    const hasPublishedAt = tableInfo.some(col => col.name === 'published_at');
+    const hasRegenCount = tableInfo.some(col => col.name === 'regen_count');
+    const hasHistory = tableInfo.some(col => col.name === 'history');
+
+    if (!hasExternalLink) this.db.exec("ALTER TABLE generated_posts ADD COLUMN external_link TEXT");
+    if (!hasPublishedAt) this.db.exec("ALTER TABLE generated_posts ADD COLUMN published_at DATETIME");
+    if (!hasRegenCount) this.db.exec("ALTER TABLE generated_posts ADD COLUMN regen_count INTEGER DEFAULT 0");
+    if (!hasHistory) this.db.exec("ALTER TABLE generated_posts ADD COLUMN history TEXT");
     
     // Sessions table
     this.db.exec(`
@@ -118,6 +160,42 @@ export class DatabaseConfig {
         FOREIGN KEY (user_id) REFERENCES wallets(user_id) ON DELETE CASCADE
       )
     `);
+
+    // Tickets table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS tickets (
+        id TEXT PRIMARY KEY,
+        ticket_num INTEGER NOT NULL,
+        user_id TEXT NOT NULL,
+        user_email TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        priority TEXT NOT NULL CHECK (priority IN ('Low', 'Medium', 'High', 'Critical')),
+        status TEXT NOT NULL CHECK (status IN ('Open', 'Pending', 'Resolved')),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        messages TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Social Connections table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS social_connections (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        platform TEXT NOT NULL CHECK (platform IN ('facebook', 'instagram', 'tiktok')),
+        connected INTEGER DEFAULT 0,
+        username TEXT,
+        access_token TEXT,
+        followers INTEGER DEFAULT 0,
+        engagement REAL DEFAULT 0.0,
+        data TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE(user_id, platform)
+      )
+    `);
     
     // Create indexes for better performance
     this.db.exec(`
@@ -130,6 +208,8 @@ export class DatabaseConfig {
       CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
       CREATE INDEX IF NOT EXISTS idx_content_plans_user_month ON content_plans(user_id, month);
       CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
+      CREATE INDEX IF NOT EXISTS idx_social_connections_user_id ON social_connections(user_id);
     `);
     
     // Create triggers for updated_at timestamps
@@ -156,6 +236,18 @@ export class DatabaseConfig {
         AFTER UPDATE ON wallets
         BEGIN
           UPDATE wallets SET updated_at = CURRENT_TIMESTAMP WHERE user_id = NEW.user_id;
+        END;
+
+      CREATE TRIGGER IF NOT EXISTS update_tickets_timestamp 
+        AFTER UPDATE ON tickets
+        BEGIN
+          UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+        END;
+
+      CREATE TRIGGER IF NOT EXISTS update_social_connections_timestamp 
+        AFTER UPDATE ON social_connections
+        BEGIN
+          UPDATE social_connections SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
         END;
     `);
   }

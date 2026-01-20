@@ -52,7 +52,8 @@ class PaymentService {
       headers: this.getAuthHeader(),
       body: JSON.stringify({
         userId,
-        amount
+        amount,
+        clientOrigin: window.location.origin // Send the actual browser origin
       })
     });
 
@@ -120,6 +121,49 @@ class PaymentService {
     });
 
     return response.ok;
+  }
+
+  async cancelTransaction(transactionId: string): Promise<Wallet> {
+    const userId = this.getUserId();
+    if (!userId) throw new Error("Not authenticated");
+
+    const response = await fetch('/api/wallet/cancel-transaction', {
+      method: 'POST',
+      headers: this.getAuthHeader(),
+      body: JSON.stringify({ transactionId })
+    });
+
+    if (!response.ok) {
+      let errorMessage = "Failed to cancel transaction";
+      try {
+        const error = await response.json();
+        errorMessage = error.error || error.message || errorMessage;
+      } catch (e) {
+        // If JSON parse fails, it's likely HTML (404/500)
+        const text = await response.text();
+        console.error("Non-JSON Error Response:", text);
+        errorMessage = `Server Error (${response.status}): The server returned an unexpected response. Please check the console logs.`;
+      }
+      throw new Error(errorMessage);
+    }
+
+    return response.json();
+  }
+
+  async verifyPayment(): Promise<{ status: string, message: string }> {
+    const userId = this.getUserId();
+    if (!userId) throw new Error("Not authenticated");
+
+    const response = await fetch('/api/wallet/verify-payment', {
+      method: 'POST',
+      headers: this.getAuthHeader()
+    });
+
+    if (!response.ok) {
+      throw new Error("Failed to verify payment status");
+    }
+
+    return response.json();
   }
 }
 

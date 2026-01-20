@@ -1,45 +1,53 @@
 import { Ticket, User } from '../types';
 
 class SupportService {
-  private static STORAGE_KEY = 'kawayan_tickets';
-
-  private getTickets(): Ticket[] {
-    return JSON.parse(localStorage.getItem(SupportService.STORAGE_KEY) || '[]');
+  
+  private getAuthHeaders(): HeadersInit {
+    const token = localStorage.getItem('kawayan_jwt');
+    return token ? { 
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    } : { 'Content-Type': 'application/json' };
   }
 
-  private saveTickets(tickets: Ticket[]) {
-    localStorage.setItem(SupportService.STORAGE_KEY, JSON.stringify(tickets));
+  async createTicket(user: User, subject: string, priority: string, message: string = ''): Promise<Ticket | null> {
+    try {
+      const response = await fetch('/api/support/tickets', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ subject, priority, message })
+      });
+      
+      if (!response.ok) throw new Error('Failed to create ticket');
+      return await response.json();
+    } catch (error) {
+      console.error('Error creating ticket:', error);
+      return null;
+    }
   }
 
-  createTicket(user: User, subject: string, priority: string): Ticket {
-    const tickets = this.getTickets();
-    const newTicket: Ticket = {
-      id: Date.now().toString(),
-      ticketNum: 1000 + tickets.length + 1,
-      userId: user.id,
-      userEmail: user.email,
-      subject,
-      priority: priority as any,
-      status: 'Open',
-      createdAt: new Date().toISOString(),
-      messages: []
-    };
-    
-    tickets.unshift(newTicket);
-    this.saveTickets(tickets);
-    return newTicket;
+  async getAllTickets(): Promise<Ticket[]> {
+    try {
+      const response = await fetch('/api/support/tickets', {
+        headers: this.getAuthHeaders()
+      });
+      if (!response.ok) return [];
+      return await response.json();
+    } catch (error) {
+      console.error('Error getting tickets:', error);
+      return [];
+    }
   }
 
-  getAllTickets(): Ticket[] {
-    return this.getTickets();
-  }
-
-  updateTicketStatus(ticketId: string, status: 'Open' | 'Pending' | 'Resolved'): void {
-    const tickets = this.getTickets();
-    const index = tickets.findIndex(t => t.id === ticketId);
-    if (index !== -1) {
-      tickets[index].status = status;
-      this.saveTickets(tickets);
+  async updateTicketStatus(ticketId: string, status: 'Open' | 'Pending' | 'Resolved'): Promise<void> {
+    try {
+      await fetch(`/api/support/tickets/${ticketId}`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ status })
+      });
+    } catch (error) {
+      console.error('Error updating ticket status:', error);
     }
   }
 }

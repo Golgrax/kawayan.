@@ -9,114 +9,205 @@ export interface SocialMetric {
 export interface SocialPlatformData {
   platform: 'facebook' | 'instagram' | 'tiktok';
   connected: boolean;
+  username?: string; // Added username
   followers: number;
+  following?: number;
+  likes?: number;
+  posts?: number;
+  views?: number;
+  interactions?: number;
+  visits?: number;
+  netFollows?: number;
   engagement: number;
-  reach: SocialMetric[]; // Time series data
+  reach: number; // Single value from scraper
+  reachData?: SocialMetric[]; // Time series data
+  error?: string;
+  connectedAt?: string;
+  accessToken?: string;
 }
 
 // Simulates a real API Service
 class SocialMediaService {
-  private static STORAGE_KEY = 'kawayan_social_connections';
 
-  private getConnections() {
-    return JSON.parse(localStorage.getItem(SocialMediaService.STORAGE_KEY) || '{}');
-  }
-
-  private saveConnections(data: any) {
-    localStorage.setItem(SocialMediaService.STORAGE_KEY, JSON.stringify(data));
-  }
-
-  // 1. Connect Account (Redirects to real OAuth)
-  async connectAccount(platform: 'facebook' | 'instagram' | 'tiktok'): Promise<void> {
-    console.log(`Redirecting to ${platform} Auth...`);
+  // Helper to check for Sandbox Mode
+  private isSandbox(): boolean {
+    const isDev = import.meta.env.DEV;
+    const tiktokKey = import.meta.env.VITE_TIKTOK_CLIENT_KEY || '';
+    const fbKey = import.meta.env.VITE_FACEBOOK_APP_ID || '';
     
-    const redirectUri = `${window.location.origin}/auth/callback/${platform}`;
-    let authUrl = '';
+    // Check if keys are missing or placeholders
+    const missingKeys = !tiktokKey || tiktokKey.includes('your_') || !fbKey || fbKey.includes('your_');
+    
+    return isDev || missingKeys;
+  }
 
-    if (platform === 'facebook' || platform === 'instagram') {
-      const appId = platform === 'facebook' 
-        ? (import.meta as any).env.VITE_FACEBOOK_APP_ID 
-        : (import.meta as any).env.VITE_INSTAGRAM_APP_ID;
-      
-      if (!appId) {
-        alert(`OAUTH SETUP REQUIRED: Please configure VITE_${platform.toUpperCase()}_APP_ID in .env`);
-        return;
-      }
-      authUrl = `https://www.facebook.com/v12.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirectUri}&scope=public_profile,email,pages_show_list,pages_read_engagement`;
-    } else if (platform === 'tiktok') {
-      const clientKey = (import.meta as any).env.VITE_TIKTOK_CLIENT_KEY;
-      if (!clientKey) {
-        alert(`OAUTH SETUP REQUIRED: Please configure VITE_TIKTOK_CLIENT_KEY in .env`);
-        return;
-      }
-      
-      // Ensure redirectUri is clean and matches the dashboard exactly
-      const cleanRedirectUri = `${window.location.origin}/auth/callback/tiktok`.replace(/\/$/, '');
-      const encodedRedirectUri = encodeURIComponent(cleanRedirectUri);
-      
-      console.info('TikTok Auth - Clean Redirect URI:', cleanRedirectUri);
-      
-      // Construction using standard V2 parameters
-      const params = new URLSearchParams({
-        client_key: clientKey,
-        scope: 'user.info.basic',
-        redirect_uri: cleanRedirectUri, // URLSearchParams handles encoding
-        state: Math.random().toString(36).substring(7),
-        response_type: 'code'
+  public sandboxMode = this.isSandbox();
+
+  private getAuthHeaders(): HeadersInit {
+    const token = localStorage.getItem('kawayan_jwt');
+    return token ? { 
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    } : { 'Content-Type': 'application/json' };
+  }
+
+  // 1. Fetch all connections from DB
+  async fetchConnections(): Promise<Record<string, any>> {
+    try {
+      const response = await fetch('/api/social/connections', {
+        headers: this.getAuthHeaders()
       });
-
-      authUrl = `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`;
+      if (!response.ok) return {};
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching connections:', error);
+      return {};
     }
-
-    window.location.href = authUrl;
   }
 
-  // 2. Disconnect
-  async disconnectAccount(platform: string): Promise<boolean> {
-    const connections = this.getConnections();
-    delete connections[platform];
-    this.saveConnections(connections);
-    return true;
-  }
-
-  // 3. Fetch Insights (The "Legit" Data Fetcher)
-  async getInsights(platform: 'facebook' | 'instagram' | 'tiktok'): Promise<SocialPlatformData | null> {
-    const connections = this.getConnections();
+  // 2. Connect Account (Now uses Username input instead of OAuth)
+  async connectAccount(platform: 'facebook' | 'instagram' | 'tiktok', username: string, extraData: any = {}): Promise<void> {
+    console.log(`[SocialService] Connecting to ${platform} as ${username}...`);
     
-    // LEGIT CHECK: If not connected, return NULL. Don't fake it.
-    if (!connections[platform] || !connections[platform].connected) {
+    const data = {
+      username,
+      connectedAt: new Date().toISOString(),
+      id: `${platform}_${username}`,
+      ...extraData
+    };
+
+    try {
+      await fetch('/api/social/connections', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ platform, data })
+      });
+      
+      // Trigger update
+      window.dispatchEvent(new Event('social-connections-updated'));
+    } catch (error) {
+      console.error('Error connecting account:', error);
+      throw error;
+    }
+  }
+
+  // 3. Disconnect
+  async disconnectAccount(platform: string): Promise<boolean> {
+    try {
+      await fetch(`/api/social/connections/${platform}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders()
+      });
+      window.dispatchEvent(new Event('social-connections-updated'));
+      return true;
+    } catch (error) {
+      console.error('Error disconnecting account:', error);
+      return false;
+    }
+  }
+
+  // 4. Fetch Insights (Check Cache -> Then Backend Proxy)
+  async getInsights(platform: 'facebook' | 'instagram' | 'tiktok'): Promise<SocialPlatformData | null> {
+    const connections = await this.fetchConnections();
+    const connection = connections[platform];
+    
+    if (!connection || !connection.connected) {
       return null;
     }
 
-    // Simulate API Call to Graph API
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    // Since we don't have a real FB Page ID, we GENERATE data based on the *token* timestamp 
-    // to keep it consistent (it won't change randomly on refresh, making it feel real).
-    // In a real production app, this would be: axios.get(`graph.facebook.com/${pageId}/insights...`)
+    const username = connection.username;
+    // connection.data might contain the "lastStats" or "followers" directly if flattened by getSocialConnections
+    // In databaseService.ts getSocialConnections, we flatten: ...JSON.parse(row.data)
     
-    const seed = new Date(connections[platform].connectedAt).getTime();
-    const baseFollowers = Math.floor(seed % 5000) + 500; // Deterministic based on connect time
+    // So `connection` has `followers`, `engagement`, `username`.
+    // Let's check if we have recent stats or need to refresh?
+    // For now, assume DB has latest or we force refresh if explicit.
+    // The previous code had a "cache" logic. Let's keep it simple: return what DB has.
+    // But if DB has 0 followers, maybe try scraping?
+    
+    if (connection.followers > 0) {
+      return {
+        platform,
+        connected: true,
+        username,
+        followers: connection.followers,
+        engagement: connection.engagement,
+        // Map other fields from connection object (which includes flattened JSON data)
+        following: connection.following,
+        likes: connection.likes,
+        posts: connection.posts,
+        views: connection.views,
+        interactions: connection.interactions,
+        visits: connection.visits,
+        netFollows: connection.netFollows,
+        reach: connection.reach || 0
+      };
+    }
+
+    // Try backend scraper if no data
+    let stats = { followers: 0, engagement: 0, isReal: false, following: 0, likes: 0 };
+
+    try {
+      const response = await fetch(`/api/social/stats/${platform}/${username}`);
+      const contentType = response.headers.get('content-type');
+      
+      if (response.ok && contentType && contentType.includes('application/json')) {
+        stats = await response.json();
+        
+        // Save to DB
+        if (stats.followers > 0) {
+           await this.updateStats(platform, stats);
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching real stats:', e);
+    }
 
     return {
       platform,
       connected: true,
-      followers: baseFollowers,
-      engagement: parseFloat((Math.random() * 5 + 1).toFixed(2)), // Dynamic daily fluctuation
-      reach: Array.from({length: 7}, (_, i) => ({
-        date: new Date(Date.now() - (6-i) * 86400000).toLocaleDateString(),
-        value: Math.floor(Math.random() * 1000) + 100
-      }))
+      username: username, 
+      followers: stats.followers || 0,
+      following: stats.following,
+      likes: stats.likes,
+      views: (stats as any).views || 0,
+      interactions: (stats as any).interactions || 0,
+      visits: (stats as any).visits || 0,
+      netFollows: (stats as any).netFollows || 0,
+      engagement: stats.engagement || 0,
+      reach: 0,
+      error: (stats.followers > 0) ? undefined : "No data yet"
     };
   }
 
-  // 4. Get All Connected Status
-  getConnectionStatus() {
-    const conns = this.getConnections();
+  // 5. Update Stats (Called by Dashboard when Extension scrapes data or we scrape)
+  async updateStats(platform: string, stats: any) {
+    // Just call connectAccount which calls POST /api/social/connections which updates/merges
+    // But we need to preserve existing username if not in stats
+    // Ideally we fetch first
+    const connections = await this.fetchConnections();
+    const current = connections[platform] || {};
+    
+    const newData = {
+      ...current,
+      ...stats,
+      followers: stats.followers, // Ensure top level fields update
+      engagement: stats.engagement
+    };
+    
+    // Remove "connected" boolean from data payload if it's there, 
+    // connectAccount/POST handles it but cleanly:
+    
+    await this.connectAccount(platform as any, current.username || stats.username, newData);
+  }
+
+  // 6. Get All Connected Status
+  async fetchConnectionStatus() {
+    const conns = await this.fetchConnections();
     return {
-      facebook: !!conns.facebook,
-      instagram: !!conns.instagram,
-      tiktok: !!conns.tiktok
+      facebook: !!conns.facebook?.connected,
+      instagram: !!conns.instagram?.connected,
+      tiktok: !!conns.tiktok?.connected
     };
   }
 }
