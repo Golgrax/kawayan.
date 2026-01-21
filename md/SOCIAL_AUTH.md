@@ -1,6 +1,8 @@
-# Kawayan AI - Social Auth Setup Guide
+# Social Authentication Setup
 
-This guide explains how to configure real social media connections.
+[**⬅ Back: All Tables**](./ALL_TABLES.md) | [**Next: Payment Setup ➔**](./PAYMENT_SETUP.md)
+
+This guide outlines how to configure social authentication for Kawayan AI.
 
 ## 1. Prerequisites
 You need developer accounts for the platforms you want to connect.

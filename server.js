@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import { DatabaseService } from './services/databaseService.ts';
 import { JWTService } from './services/jwtService.ts';
 import { logger } from './utils/logger.ts';
@@ -15,7 +17,54 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 const port = process.env.PORT || 3001;
+
+// Signaling Logic
+io.on('connection', (socket) => {
+  socket.on('join-room', (roomId) => {
+    socket.join(roomId);
+    socket.data.roomId = roomId; // Track room for disconnect
+    socket.to(roomId).emit('user-connected', socket.id);
+  });
+
+  socket.on('signal', (data) => {
+    // data contains: { to: socketId, from: socketId, signal: sdp/ice }
+    io.to(data.to).emit('signal', {
+      from: socket.id,
+      signal: data.signal
+    });
+  });
+
+  socket.on('message', (data) => {
+    // data: { roomId, text, sender }
+    io.to(data.roomId).emit('message', {
+      text: data.text,
+      sender: data.sender,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  socket.on('cam-state', (data) => {
+    socket.to(data.roomId).emit('cam-state', data.active);
+  });
+
+  socket.on('screen-state', (data) => {
+    socket.to(data.roomId).emit('screen-state', data.active);
+  });
+
+  socket.on('disconnect', () => {
+    if (socket.data.roomId) {
+      socket.to(socket.data.roomId).emit('peer-left');
+    }
+  });
+});
 
 // Trust proxy (required for Codespaces/Heroku/etc to get correct protocol/host)
 app.set('trust proxy', true);
@@ -190,7 +239,7 @@ app.get('/api/profiles/:userId', authenticateToken, async (req, res) => {
   const userId = req.params.userId;
   const user = req.user;
   
-  if (userId !== user.userId && user.role !== 'admin') {
+  if (userId !== user.userId && user.role !== 'admin' && user.role !== 'support') {
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
@@ -226,7 +275,7 @@ app.get('/api/posts/user/:userId', authenticateToken, async (req, res) => {
   const userId = req.params.userId;
   const user = req.user;
 
-  if (userId !== user.userId && user.role !== 'admin') {
+  if (userId !== user.userId && user.role !== 'admin' && user.role !== 'support') {
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
@@ -262,7 +311,7 @@ app.get('/api/plans/:userId/:month', authenticateToken, async (req, res) => {
   const month = req.params.month;
   const user = req.user;
 
-  if (userId !== user.userId && user.role !== 'admin') {
+  if (userId !== user.userId && user.role !== 'admin' && user.role !== 'support') {
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
@@ -280,7 +329,7 @@ app.get('/api/wallet/:userId', authenticateToken, async (req, res) => {
   const userId = req.params.userId;
   const user = req.user;
 
-  if (userId !== user.userId && user.role !== 'admin') {
+  if (userId !== user.userId && user.role !== 'admin' && user.role !== 'support') {
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
@@ -548,23 +597,91 @@ app.post('/api/wallet/cancel', authenticateToken, async (req, res) => {
 });
 
 // Admin
-
 app.get('/api/admin/stats', authenticateToken, requireAdmin, async (req, res) => {
-
+  const { start, end } = req.query;
   try {
-
-    const stats = await dbService.getAdminStats();
-
+    const stats = await dbService.getAdminStats(start, end);
     res.json(stats);
-
   } catch (error) {
-
     logger.error('Admin stats error', { error: error.message });
-
     res.status(500).json({ error: 'Failed to fetch stats' });
-
   }
+});
 
+app.get('/api/admin/logs', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 100;
+    const logs = await dbService.getAuditLogs(limit);
+    res.json(logs);
+  } catch (error) {
+    logger.error('Admin logs error', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch logs' });
+  }
+});
+
+app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const users = await dbService.getAllUsers();
+    res.json(users);
+  } catch (error) {
+    logger.error('Admin users error', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+app.get('/api/admin/tickets', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const tickets = await dbService.getAllTicketsAdmin();
+    res.json(tickets);
+  } catch (error) {
+    logger.error('Admin tickets error', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch tickets' });
+  }
+});
+
+app.put('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const data = req.body;
+  try {
+    await dbService.updateUser(id, data);
+    res.json({ message: 'User updated successfully' });
+  } catch (error) {
+    logger.error('Admin update user error', { error: error.message });
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await dbService.deleteUser(id);
+    res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    logger.error('Admin delete user error', { error: error.message });
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+app.post('/api/admin/balance', authenticateToken, requireAdmin, async (req, res) => {
+  const { userId, amount, reason } = req.body;
+  try {
+    await dbService.adminAdjustBalance(userId, amount, reason);
+    res.json({ message: 'Balance adjusted successfully' });
+  } catch (error) {
+    logger.error('Admin balance error', { error: error.message });
+    res.status(500).json({ error: 'Failed to adjust balance' });
+  }
+});
+
+app.post('/api/admin/subscription', authenticateToken, requireAdmin, async (req, res) => {
+  const { userId, plan, expiresAt } = req.body;
+  try {
+    await dbService.adminUpdateSubscription(userId, plan, expiresAt);
+    res.json({ message: 'Subscription updated successfully' });
+  } catch (error) {
+    logger.error('Admin subscription error', { error: error.message });
+    res.status(500).json({ error: 'Failed to update subscription' });
+  }
 });
 
 
@@ -655,7 +772,7 @@ app.delete('/api/social/connections/:platform', authenticateToken, async (req, r
 app.get('/api/support/tickets', authenticateToken, async (req, res) => {
   const user = req.user;
   try {
-    const tickets = user.role === 'admin' 
+    const tickets = (user.role === 'admin' || user.role === 'support')
       ? await dbService.getAllTicketsAdmin() 
       : await dbService.getTickets(user.userId);
     res.json(tickets);
@@ -721,6 +838,67 @@ app.put('/api/support/tickets/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     logger.error('Update ticket error', { error: error.message });
     res.status(500).json({ error: 'Failed to update ticket' });
+  }
+});
+
+app.post('/api/support/tickets/resolve-user', authenticateToken, async (req, res) => {
+  const { userId } = req.body;
+  try {
+    await dbService.resolveTicketByUserId(userId);
+    res.json({ message: 'User tickets resolved' });
+  } catch (error) {
+    logger.error('Resolve user tickets error', { error: error.message });
+    res.status(500).json({ error: 'Failed to resolve tickets' });
+  }
+});
+
+// --- Active Call Routes ---
+
+app.get('/api/support/calls', authenticateToken, async (req, res) => {
+  try {
+    const calls = await dbService.getActiveCalls();
+    res.json(calls);
+  } catch (error) {
+    logger.error('Get calls error', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch active calls' });
+  }
+});
+
+app.get('/api/support/call-history', authenticateToken, async (req, res) => {
+  const user = req.user;
+  if (user.role !== 'admin' && user.role !== 'support') {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  try {
+    const history = await dbService.getCallHistory();
+    res.json(history);
+  } catch (error) {
+    logger.error('Get call history error', { error: error.message });
+    res.status(500).json({ error: 'Failed to fetch call history' });
+  }
+});
+
+app.post('/api/support/calls/register', authenticateToken, async (req, res) => {
+  const { roomName, reason } = req.body;
+  const user = req.user;
+  try {
+    await dbService.registerCall(user.userId, user.email, roomName, reason);
+    res.json({ message: 'Call registered' });
+  } catch (error) {
+    logger.error('Register call error', { error: error.message });
+    res.status(500).json({ error: 'Failed to register call' });
+  }
+});
+
+app.post('/api/support/calls/unregister', authenticateToken, async (req, res) => {
+  const user = req.user;
+  const { agentId } = req.body;
+  try {
+    await dbService.unregisterCall(user.userId, agentId);
+    res.json({ message: 'Call unregistered' });
+  } catch (error) {
+    logger.error('Unregister call error', { error: error.message });
+    res.status(500).json({ error: 'Failed to unregister call' });
   }
 });
 
@@ -870,6 +1048,23 @@ app.get('/api/social/stats/:platform/:username', async (req, res) => {
 
 
 
+// --- Local AI Proxy ---
+app.post('/api/ai/local', async (req, res) => {
+  try {
+    const response = await fetch('http://127.0.0.1:11434/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body)
+    });
+    
+    if (!response.ok) throw new Error("Local AI Server Offline");
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    res.status(503).json({ error: "Local AI currently unavailable" });
+  }
+});
+
 // API 404 Handler - Must be before the React catch-all
 
 
@@ -907,17 +1102,7 @@ app.use((req, res) => {
 
 
 // Start Server
-
-
-
-app.listen(port, () => {
-
-
-
-
-
+httpServer.listen(port, () => {
   logger.info(`Server running on port ${port}`);
-
   console.log(`Server running on http://localhost:${port}`);
-
 });

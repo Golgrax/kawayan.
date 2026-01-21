@@ -220,17 +220,20 @@ export class ClientDatabaseService {
     }
   }
 
-  // --- Admin Stats ---
-  async getAdminStats(): Promise<{
+  // --- Admin Methods ---
+  async getAdminStats(start?: string, end?: string): Promise<{
     totalUsers: number;
     activeUsers: number;
     totalPostsGenerated: number;
     revenue: number;
+    cancelledTransactions: number;
+    pendingTransactions: number;
     revenueData: { name: string; value: number }[];
     churnData: { name: string; value: number }[];
   }> {
     try {
-      const response = await fetch(`${this.baseUrl}/admin/stats`, {
+      const query = start && end ? `?start=${start}&end=${end}` : '';
+      const response = await fetch(`${this.baseUrl}/admin/stats${query}`, {
         headers: this.getHeaders()
       });
 
@@ -243,9 +246,105 @@ export class ClientDatabaseService {
         activeUsers: 0,
         totalPostsGenerated: 0,
         revenue: 0,
+        cancelledTransactions: 0,
+        pendingTransactions: 0,
         revenueData: [],
         churnData: []
       };
+    }
+  }
+
+  async getAuditLogs(limit: number = 100): Promise<any[]> {
+    try {
+      const response = await fetch(`${this.baseUrl}/admin/logs?limit=${limit}`, {
+        headers: this.getHeaders()
+      });
+      if (!response.ok) throw new Error('Failed to fetch logs');
+      return await response.json();
+    } catch (error) {
+      logger.error('Error getting audit logs (api)', { error });
+      return [];
+    }
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    try {
+      const response = await fetch(`${this.baseUrl}/admin/users`, {
+        headers: this.getHeaders()
+      });
+      if (!response.ok) throw new Error('Failed to fetch users');
+      return await response.json();
+    } catch (error) {
+      logger.error('Error getting all users (api)', { error });
+      return [];
+    }
+  }
+
+  async getAllTicketsAdmin(): Promise<any[]> {
+    try {
+      const response = await fetch(`${this.baseUrl}/admin/tickets`, {
+        headers: this.getHeaders()
+      });
+      if (!response.ok) throw new Error('Failed to fetch tickets');
+      return await response.json();
+    } catch (error) {
+      logger.error('Error getting all tickets (api)', { error });
+      return [];
+    }
+  }
+
+  async updateUser(userId: string, data: any): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/admin/users/${userId}`, {
+        method: 'PUT',
+        headers: this.getHeaders(),
+        body: JSON.stringify(data)
+      });
+      if (!response.ok) throw new Error('Failed to update user');
+    } catch (error) {
+      logger.error('Error updating user (api)', { userId, error });
+      throw error;
+    }
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/admin/users/${userId}`, {
+        method: 'DELETE',
+        headers: this.getHeaders()
+      });
+      if (!response.ok) throw new Error('Failed to delete user');
+    } catch (error) {
+      logger.error('Error deleting user (api)', { userId, error });
+      throw error;
+    }
+  }
+
+  async adminAdjustBalance(userId: string, amount: number, reason: string): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/admin/balance`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ userId, amount, reason })
+      });
+      if (!response.ok) throw new Error('Failed to adjust balance');
+    } catch (error) {
+      logger.error('Error adjusting balance (api)', { userId, error });
+      throw error;
+    }
+  }
+
+  async adminUpdateSubscription(userId: string, plan: string, expiresAt: string): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/admin/subscription`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ userId, plan, expiresAt })
+      });
+      if (!response.ok) throw new Error('Failed to update subscription');
+    } catch (error) {
+      logger.error('Error updating subscription (api)', { userId, error });
+      throw error;
     }
   }
 

@@ -13,7 +13,9 @@ async function seed() {
       { email: 'support@kawayan.ph', password: 'Support123!', role: 'support' as const, businessName: 'Kawayan Support' },
       { email: 'cafe@kawayan.ph', password: 'Password123!', role: 'user' as const, businessName: 'Kapihan sa Nayon' },
       { email: 'bakery@kawayan.ph', password: 'Password123!', role: 'user' as const, businessName: 'Panaderia de Manila' },
-      { email: 'tech@kawayan.ph', password: 'Password123!', role: 'user' as const, businessName: 'Gadget Hub PH' }
+      { email: 'tech@kawayan.ph', password: 'Password123!', role: 'user' as const, businessName: 'Gadget Hub PH' },
+      { email: 'fashion@kawayan.ph', password: 'Password123!', role: 'user' as const, businessName: 'Manila Threads' },
+      { email: 'food@kawayan.ph', password: 'Password123!', role: 'user' as const, businessName: 'Lutong Bahay Express' }
     ];
 
     const createdUsers = [];
@@ -81,6 +83,24 @@ async function seed() {
         targetAudience: 'Tech enthusiasts and value-conscious gadget seekers.',
         brandVoice: 'Expert, trendy, and helpful.',
         keyThemes: 'Latest tech, value for money, expert reviews, digital lifestyle.'
+      },
+      {
+        id: 'prof-fashion',
+        userId: createdUsers[5].id, // fashion
+        businessName: 'Manila Threads',
+        industry: 'Fashion',
+        targetAudience: 'Fashion-forward young adults.',
+        brandVoice: 'Stylish, bold, and energetic.',
+        keyThemes: 'Local design, sustainable fashion, street style.'
+      },
+      {
+        id: 'prof-food',
+        userId: createdUsers[6].id, // food
+        businessName: 'Lutong Bahay Express',
+        industry: 'Food & Beverage',
+        targetAudience: 'Busy professionals and students.',
+        brandVoice: 'Homely, reliable, and delicious.',
+        keyThemes: 'Home-cooked meals, quick delivery, affordable nutrition.'
       }
     ];
 
@@ -141,6 +161,75 @@ async function seed() {
       await dbService.savePlan(user.id, currentMonthName, ideas);
       console.log(`✓ Created content plan for: ${user.email} (${currentMonthName})`);
     }
+
+    // 5. Create Transactions
+    console.log('Generating transactions...');
+    const db = (dbService as any).dbConfig.getDatabase();
+    for (const user of createdUsers.slice(2)) {
+      // Ensure wallet exists
+      const wallet = db.prepare('SELECT user_id FROM wallets WHERE user_id = ?').get(user.id);
+      if (!wallet) {
+        db.prepare('INSERT INTO wallets (user_id, balance, currency, subscription) VALUES (?, ?, ?, ?)').run(user.id, 0, 'PHP', 'FREE');
+      }
+
+      // Completed Credits
+      const compId = `seed_txn_comp_${user.id}_${Date.now()}`;
+      db.prepare("INSERT INTO transactions (id, user_id, description, amount, status, type) VALUES (?, ?, ?, ?, ?, ?)").run(
+        compId, user.id, 'Top-up via Xendit', 1000 + Math.random() * 5000, 'COMPLETED', 'CREDIT'
+      );
+      // Update balance manually for completed ones
+      db.prepare('UPDATE wallets SET balance = balance + ? WHERE user_id = ?').run(1000, user.id);
+
+      // Pending
+      const pendId = `seed_txn_pend_${user.id}_${Date.now()}`;
+      db.prepare("INSERT INTO transactions (id, user_id, description, amount, status, type) VALUES (?, ?, ?, ?, ?, ?)").run(
+        pendId, user.id, 'Pending Xendit Invoice', 500, 'PENDING', 'CREDIT'
+      );
+
+      // Cancelled
+      const cancelId = `seed_txn_cancel_${user.id}_${Date.now()}`;
+      db.prepare("INSERT INTO transactions (id, user_id, description, amount, status, type) VALUES (?, ?, ?, ?, ?, ?)").run(
+        cancelId, user.id, 'Cancelled Manual Top-up', 200, 'CANCELLED', 'CREDIT'
+      );
+    }
+    console.log('✓ Transactions seeded');
+
+    // 6. Create Support Tickets
+    console.log('Generating support tickets...');
+    const ticketSubjects = ['Cannot login', 'Billing issue', 'Slow response', 'General inquiry'];
+    for (let i = 0; i < 5; i++) {
+      const user = createdUsers[2 + (i % (createdUsers.length - 2))];
+      const ticketId = `seed-ticket-${user.id}-${Date.now()}-${i}`;
+      const ticket = {
+        id: ticketId,
+        ticketNum: 5000 + i + (Date.now() % 1000),
+        userId: user.id,
+        userEmail: user.email,
+        subject: ticketSubjects[i % ticketSubjects.length],
+        priority: i === 0 ? 'Critical' : 'Medium',
+        status: i % 2 === 0 ? 'Open' : 'Pending',
+        createdAt: new Date().toISOString(),
+        messages: [{ sender: 'user', text: 'Help me with my account!', timestamp: new Date().toISOString() }]
+      };
+      await dbService.createTicket(ticket);
+    }
+    console.log('✓ Tickets seeded');
+
+    // 7. Create Audit Logs
+    console.log('Generating audit logs...');
+    const actions = ['login', 'update_profile', 'create_post', 'topup_wallet', 'resolve_ticket'];
+    for (let i = 0; i < 15; i++) {
+      const user = createdUsers[i % createdUsers.length];
+      const logId = `seed-log-${user.id}-${Date.now()}-${i}`;
+      db.prepare("INSERT INTO audit_logs (id, user_id, action, details, timestamp) VALUES (?, ?, ?, ?, ?)").run(
+        logId, 
+        user.id, 
+        actions[i % actions.length], 
+        `Seeded activity for ${user.email}`, 
+        new Date(Date.now() - i * 3600000).toISOString()
+      );
+    }
+    console.log('✓ Audit logs seeded');
 
     console.log('\n✅ Database seeded successfully!');
   } catch (error) {

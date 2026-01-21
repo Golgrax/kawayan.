@@ -1,6 +1,8 @@
-# Kawayan AI - Complete Database Schema
+# Database Tables Summary
 
-This document contains the definitions for all "tables" (entities) used in the Kawayan AI system.
+[**⬅ Back: Accounts**](./ACCOUNTS.md) | [**Next: Social Auth ➔**](./SOCIAL_AUTH.md)
+
+This document provides a flat overview of all tables currently active in the `kawayan.db` SQLite database.
 
 ## 1. User Table
 Stores account credentials and role access.

@@ -479,7 +479,7 @@ async loginUser(email: string, password: string): Promise<{ user: User; token: s
   async cancelTransaction(transactionId: string, userId: string): Promise<void> {
     const db = this.dbConfig.getDatabase();
     try {
-      const result = db.prepare("UPDATE transactions SET status = 'FAILED' WHERE id = ? AND user_id = ? AND status = 'PENDING'").run(transactionId, userId);
+      const result = db.prepare("UPDATE transactions SET status = 'CANCELLED' WHERE id = ? AND user_id = ? AND status = 'PENDING'").run(transactionId, userId);
       if (result.changes === 0) {
         throw new Error("Transaction not found or not pending");
       }
@@ -520,6 +520,84 @@ async loginUser(email: string, password: string): Promise<{ user: User; token: s
     }
   }
   
+  async getAllUsers(): Promise<User[]> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      const rows = db.prepare(`
+        SELECT u.id, u.email, u.role, u.business_name as businessName, u.created_at as createdAt, w.balance
+        FROM users u
+        LEFT JOIN wallets w ON u.id = w.user_id
+        ORDER BY u.created_at DESC
+      `).all() as any[];
+      return rows.map(row => ({
+        id: row.id,
+        email: row.email,
+        role: row.role,
+        businessName: row.businessName,
+        createdAt: row.createdAt,
+        balance: row.balance || 0
+      }));
+    } catch (error) {
+      console.error('Error getting all users:', error);
+      return [];
+    }
+  }
+
+  async updateUser(userId: string, data: any): Promise<void> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      const fields = [];
+      const values = [];
+      if (data.role) { fields.push('role = ?'); values.push(data.role); }
+      if (data.businessName !== undefined) { fields.push('business_name = ?'); values.push(data.businessName); }
+      
+      if (fields.length === 0) return;
+      
+      values.push(userId);
+      db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      db.transaction(() => {
+        db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+        db.prepare('DELETE FROM wallets WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM transactions WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM brand_profiles WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM generated_posts WHERE user_id = ?').run(userId);
+        db.prepare('DELETE FROM tickets WHERE user_id = ?').run(userId);
+      })();
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  }
+
+  async adminAdjustBalance(userId: string, amount: number, reason: string): Promise<void> {
+    try {
+      await this.createTransaction(userId, Math.abs(amount), reason, amount >= 0 ? 'CREDIT' : 'DEBIT', 'COMPLETED');
+    } catch (error) {
+      console.error('Error adjusting balance:', error);
+      throw error;
+    }
+  }
+
+  async adminUpdateSubscription(userId: string, plan: 'FREE' | 'PRO' | 'ENTERPRISE', expiresAt: string): Promise<void> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      db.prepare('UPDATE wallets SET subscription = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?').run(plan, userId);
+      // If we had an expires_at column in wallets, we'd update it here too.
+    } catch (error) {
+      console.error('Error updating subscription:', error);
+      throw error;
+    }
+  }
+
   // --- Social Media Connections ---
   async saveSocialConnection(userId: string, platform: string, data: any): Promise<void> {
     const db = this.dbConfig.getDatabase();
@@ -670,31 +748,109 @@ async loginUser(email: string, password: string): Promise<{ user: User; token: s
     }
   }
 
+  async resolveTicketByUserId(userId: string): Promise<void> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      db.prepare("UPDATE tickets SET status = 'Resolved', updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND status != 'Resolved'").run(userId);
+    } catch (error) {
+      console.error('Error resolving user tickets:', error);
+      throw error;
+    }
+  }
+
+  // --- Active Calls ---
+  async registerCall(userId: string, userEmail: string, roomName: string, reason?: string): Promise<void> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      logger.info('Registering active call', { userId, userEmail, roomName, reason });
+      db.prepare(`
+        INSERT OR REPLACE INTO active_calls (user_id, user_email, room_name, reason)
+        VALUES (?, ?, ?, ?)
+      `).run(userId, userEmail, roomName, reason || null);
+    } catch (error) {
+      console.error('Error registering call:', error);
+      throw error;
+    }
+  }
+
+  async unregisterCall(userId: string, agentId?: string): Promise<void> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      logger.info('Unregistering active call', { userId });
+      
+      // Get call info before deleting to log it
+      const call = db.prepare('SELECT * FROM active_calls WHERE user_id = ?').get(userId) as any;
+      if (call) {
+        const endedAt = new Date().toISOString();
+        const startedAt = new Date(call.started_at).getTime();
+        const duration = Math.floor((Date.now() - startedAt) / 1000);
+        const callId = call.room_name.split('-')[1] || null;
+        
+        db.prepare(`
+          INSERT INTO call_history (id, user_id, user_email, call_id, reason, started_at, duration_seconds, agent_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(Date.now().toString(), userId, call.user_email, callId, call.reason, call.started_at, duration, agentId || null);
+      }
+
+      db.prepare('DELETE FROM active_calls WHERE user_id = ?').run(userId);
+    } catch (error) {
+      console.error('Error unregistering call:', error);
+      throw error;
+    }
+  }
+
+  async getActiveCalls(): Promise<any[]> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      return db.prepare('SELECT * FROM active_calls ORDER BY started_at ASC').all();
+    } catch (error) {
+      console.error('Error getting active calls:', error);
+      return [];
+    }
+  }
+
+  async getCallHistory(): Promise<any[]> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      return db.prepare('SELECT * FROM call_history ORDER BY started_at DESC LIMIT 100').all();
+    } catch (error) {
+      console.error('Error getting call history:', error);
+      return [];
+    }
+  }
+
   // --- Admin Stats ---
-  async getAdminStats(): Promise<{
+  async getAdminStats(start?: string, end?: string): Promise<{
     totalUsers: number;
     activeUsers: number;
     totalPostsGenerated: number;
     revenue: number;
+    cancelledTransactions: number;
+    pendingTransactions: number;
     revenueData: { name: string; value: number }[];
     churnData: { name: string; value: number }[];
   }> {
     const db = this.dbConfig.getDatabase();
     
     try {
-      const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
-      const activeUsers = (db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'user'").get() as { count: number }).count;
-      const totalPostsGenerated = (db.prepare('SELECT COUNT(*) as count FROM generated_posts').get() as { count: number }).count;
-      const revenue = totalUsers * 500; // Mock revenue: 500 PHP per user
+      const startFilter = start ? start : '1970-01-01';
+      const endFilter = end ? end : '9999-12-31';
+
+      const totalUsers = (db.prepare('SELECT COUNT(*) as count FROM users WHERE created_at BETWEEN ? AND ?').get(startFilter, endFilter) as { count: number }).count;
+      const activeUsers = (db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'user' AND created_at BETWEEN ? AND ?").get(startFilter, endFilter) as { count: number }).count;
+      const totalPostsGenerated = (db.prepare('SELECT COUNT(*) as count FROM generated_posts WHERE created_at BETWEEN ? AND ?').get(startFilter, endFilter) as { count: number }).count;
+      const revenue = (db.prepare("SELECT SUM(amount) as total FROM transactions WHERE status = 'COMPLETED' AND type = 'CREDIT' AND date BETWEEN ? AND ?").get(startFilter, endFilter) as { total: number }).total || 0;
+      const cancelledTransactions = (db.prepare("SELECT COUNT(*) as count FROM transactions WHERE status = 'CANCELLED' AND date BETWEEN ? AND ?").get(startFilter, endFilter) as { count: number }).count;
+      const pendingTransactions = (db.prepare("SELECT COUNT(*) as count FROM transactions WHERE status = 'PENDING' AND date BETWEEN ? AND ?").get(startFilter, endFilter) as { count: number }).count;
       
-      // Calculate Revenue Growth (Users per month * 500)
+      // Calculate Revenue Growth
       const userGrowth = db.prepare(`
         SELECT strftime('%Y-%m', created_at) as month, COUNT(*) as count 
         FROM users 
-        WHERE created_at >= date('now', '-6 months')
+        WHERE created_at BETWEEN ? AND ?
         GROUP BY month 
         ORDER BY month ASC
-      `).all() as { month: string; count: number }[];
+      `).all(startFilter, endFilter) as { month: string; count: number }[];
       
       const revenueData = userGrowth.map(item => {
         const date = new Date(item.month + '-01');
@@ -713,6 +869,8 @@ async loginUser(email: string, password: string): Promise<{ user: User; token: s
         activeUsers,
         totalPostsGenerated,
         revenue,
+        cancelledTransactions,
+        pendingTransactions,
         revenueData,
         churnData
       };
@@ -723,6 +881,8 @@ async loginUser(email: string, password: string): Promise<{ user: User; token: s
         activeUsers: 0,
         totalPostsGenerated: 0,
         revenue: 0,
+        cancelledTransactions: 0,
+        pendingTransactions: 0,
         revenueData: [],
         churnData: []
       };
@@ -754,6 +914,16 @@ async loginUser(email: string, password: string): Promise<{ user: User; token: s
     }
   }
   
+  async getAuditLogs(limit: number = 100): Promise<any[]> {
+    const db = this.dbConfig.getDatabase();
+    try {
+      return db.prepare('SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT ?').all(limit);
+    } catch (error) {
+      console.error('Error getting audit logs:', error);
+      return [];
+    }
+  }
+
   // --- Database Management ---
   async close(): Promise<void> {
     this.dbConfig.close();

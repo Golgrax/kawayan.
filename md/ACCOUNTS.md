@@ -1,4 +1,8 @@
-# Kawayan AI - Account Credentials
+# Kawayan AI - Account Types & Permissions
+
+[**⬅ Back: API Guide**](./API_GUIDE.md) | [**Next: All Tables ➔**](./ALL_TABLES.md)
+
+Kawayan AI uses a role-based access control (RBAC) system to ensure security and efficient management.
 
 The following accounts are pre-seeded in the database for testing and development purposes.
 

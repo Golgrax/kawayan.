@@ -1,6 +1,8 @@
-# Kawayan AI - API Integration & Architecture Guide
+# Kawayan AI - API Guide
 
-This document details the technical implementation of the "Legit" services layer in Kawayan AI. It explains how we simulate enterprise-grade integrations (Facebook, Xendit) and how we utilize real APIs (Gemini, Google Trends).
+[**⬅ Back: Developer Guide**](./DEVELOPER_GUIDE.md) | [**Next: Accounts ➔**](./ACCOUNTS.md)
+
+This guide provides an overview of the REST API endpoints provided by the Kawayan AI backend.
 
 ## 1. Architecture Overview
 

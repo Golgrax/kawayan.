@@ -8,6 +8,7 @@ const Billing: React.FC = () => {
   const [topUpAmount, setTopUpAmount] = useState('');
   const [processing, setProcessing] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   
   // Modals
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -16,6 +17,14 @@ const Billing: React.FC = () => {
 
   useEffect(() => {
     loadWallet();
+
+    // Check for success URL param
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('success') === 'true') {
+      setShowSuccessPopup(true);
+      // Clean up URL without reloading
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, []);
 
   const loadWallet = async () => {
@@ -129,6 +138,25 @@ const Billing: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 relative">
       
+      {/* Success Popup */}
+      {showSuccessPopup && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white dark:bg-slate-800 rounded-3xl p-8 w-full max-w-sm shadow-2xl border border-slate-200 dark:border-slate-700 text-center animate-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <CheckCircle className="w-12 h-12 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Payment Successful!</h3>
+            <p className="text-slate-500 dark:text-slate-400 mb-8">Your wallet balance has been updated successfully. You can now continue creating amazing content.</p>
+            <button 
+              onClick={() => setShowSuccessPopup(false)}
+              className="w-full bg-slate-900 dark:bg-emerald-600 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 dark:hover:bg-emerald-700 transition transform active:scale-95 shadow-lg"
+            >
+              Great!
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Payment Method Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -273,7 +301,12 @@ const Billing: React.FC = () => {
                   <td className="px-6 py-4 font-medium text-slate-800 dark:text-white">{txn.description}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs px-2 py-1 rounded-full font-bold ${txn.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : txn.status === 'PENDING' ? 'bg-orange-100 text-orange-700' : 'bg-rose-100 text-rose-700'}`}>
+                      <span className={`text-xs px-2 py-1 rounded-full font-bold ${
+                        txn.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 
+                        txn.status === 'PENDING' ? 'bg-orange-100 text-orange-700' : 
+                        txn.status === 'CANCELLED' ? 'bg-slate-100 text-slate-700' :
+                        'bg-rose-100 text-rose-700'
+                      }`}>
                         {txn.status}
                       </span>
                       {txn.status === 'PENDING' && (

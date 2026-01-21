@@ -1,17 +1,20 @@
 # Kawayan AI - Database Schema
 
+[**⬅ Back: Architecture**](./ARCHITECTURE.md) | [**Next: Developer Guide ➔**](./DEVELOPER_GUIDE.md)
+
 This document outlines the data structures (entities) used in the application's local database service. These entities represent the "Tables" in our architecture.
 
 ## 1. User
-Represents a registered account holder or administrator.
+Represents a registered account holder, administrator, or support staff.
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `id` | `string` | Unique identifier (PK) |
 | `email` | `string` | User's email address (Unique) |
 | `passwordHash` | `string` | Hashed password for security |
-| `role` | `'user' \| 'admin'` | Access level |
+| `role` | `'user' \| 'admin' \| 'support'` | Access level |
 | `businessName` | `string` (optional) | Name of the user's business |
+| `theme` | `'light' \| 'dark'` | UI theme preference |
 
 ## 2. BrandProfile
 Stores the branding guidelines used by the AI to personalize content. Linked 1:1 with `User`.
@@ -48,14 +51,6 @@ Represents a specific piece of social media content created by the AI.
 | `regenCount` | `number` | Count of regenerations (Max 2) |
 | `history` | `PostVersion[]` | Array of previous drafts |
 
-### Sub-Entity: PostVersion
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `caption` | `string` | Archived caption |
-| `imagePrompt` | `string` | Archived prompt |
-| `viralityScore` | `number` | Archived score |
-| `createdAt` | `string` | Timestamp |
-
 ## 4. Wallet
 Manages the user's financial balance and subscription state. Linked 1:1 with `User` (SQL Table: `wallets`).
 
@@ -77,7 +72,7 @@ A specific financial record linked to a Wallet (SQL Table: `transactions`).
 | `date` | `datetime` | ISO Timestamp |
 | `description` | `string` | e.g., "Wallet Top-up" |
 | `amount` | `number` | Value in PHP |
-| `status` | `'PENDING' \| 'COMPLETED' \| 'FAILED'` | Payment status |
+| `status` | `'PENDING' \| 'COMPLETED' \| 'FAILED' \| 'CANCELLED'` | Payment status |
 | `type` | `'CREDIT' \| 'DEBIT'` | Money in vs Money out |
 
 ## 6. Ticket
@@ -95,7 +90,18 @@ A support request submitted by a user.
 | `createdAt` | `string` | ISO Timestamp |
 | `messages` | `Message[]` | Chat history for this ticket |
 
-## 7. SocialPlatformData
+## 7. AuditLog
+System-wide activity logs for governance and security (SQL Table: `audit_logs`).
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique Log ID (PK) |
+| `user_id` | `string` | Foreign Key to User |
+| `action` | `string` | Type of activity (e.g., "login", "create_post") |
+| `details` | `string` | JSON or text details of the action |
+| `timestamp` | `datetime` | ISO Timestamp |
+
+## 8. SocialPlatformData
 Stores the connection state and cached insights for social channels.
 
 | Field | Type | Description |
@@ -104,10 +110,5 @@ Stores the connection state and cached insights for social channels.
 | `connected` | `boolean` | Connection status |
 | `followers` | `number` | Total follower count |
 | `engagement` | `number` | Engagement rate percentage |
-| `reach` | `SocialMetric[]` | Time-series data for charts |
-
-### Sub-Entity: SocialMetric
-| Field | Type | Description |
-| :--- | :--- | :--- |
-| `date` | `string` | Data point date |
-| `value` | `number` | Metric value |
+| `data` | `JSON` | Raw API response data |
+| `updated_at` | `datetime` | Last sync timestamp |

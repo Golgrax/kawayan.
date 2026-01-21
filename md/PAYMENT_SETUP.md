@@ -1,5 +1,7 @@
 # Kawayan AI - Payment Setup Guide (Xendit Automated)
 
+[**⬅ Back: Social Auth**](./SOCIAL_AUTH.md)
+
 The system is now integrated with **Xendit** for fully automated payments.
 
 ## 1. How it works (Automated)

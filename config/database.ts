@@ -155,11 +155,40 @@ export class DatabaseConfig {
         date DATETIME DEFAULT CURRENT_TIMESTAMP,
         description TEXT NOT NULL,
         amount REAL NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('PENDING', 'COMPLETED', 'FAILED')),
+        status TEXT NOT NULL CHECK (status IN ('PENDING', 'COMPLETED', 'FAILED', 'CANCELLED')),
         type TEXT NOT NULL CHECK (type IN ('CREDIT', 'DEBIT')),
         FOREIGN KEY (user_id) REFERENCES wallets(user_id) ON DELETE CASCADE
       )
     `);
+
+    // Migration for transactions status
+    const txnTableInfo = this.db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'").get() as { sql: string };
+    if (txnTableInfo && !txnTableInfo.sql.includes('CANCELLED')) {
+      console.log('Migration: Updating transactions status constraint to include CANCELLED');
+      this.db.transaction(() => {
+        // 1. Rename old table
+        this.db.exec("ALTER TABLE transactions RENAME TO transactions_old");
+        // 2. Create new table with correct constraint
+        this.db.exec(`
+          CREATE TABLE transactions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            date DATETIME DEFAULT CURRENT_TIMESTAMP,
+            description TEXT NOT NULL,
+            amount REAL NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('PENDING', 'COMPLETED', 'FAILED', 'CANCELLED')),
+            type TEXT NOT NULL CHECK (type IN ('CREDIT', 'DEBIT')),
+            FOREIGN KEY (user_id) REFERENCES wallets(user_id) ON DELETE CASCADE
+          )
+        `);
+        // 3. Copy data
+        this.db.exec("INSERT INTO transactions SELECT * FROM transactions_old");
+        // 4. Drop old table
+        this.db.exec("DROP TABLE transactions_old");
+        // 5. Recreate index
+        this.db.exec("CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id)");
+      })();
+    }
 
     // Tickets table
     this.db.exec(`
@@ -177,6 +206,47 @@ export class DatabaseConfig {
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `);
+
+    // Active Calls table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS active_calls (
+        user_id TEXT PRIMARY KEY,
+        user_email TEXT NOT NULL,
+        room_name TEXT NOT NULL,
+        reason TEXT,
+        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Migration for active_calls reason
+    const callTableInfo = this.db.prepare("PRAGMA table_info(active_calls)").all() as any[];
+    if (!callTableInfo.some(col => col.name === 'reason')) {
+      console.log('Migration: Adding reason column to active_calls');
+      this.db.exec("ALTER TABLE active_calls ADD COLUMN reason TEXT");
+    }
+
+    // Call History table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS call_history (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        user_email TEXT NOT NULL,
+        call_id TEXT,
+        reason TEXT,
+        started_at DATETIME NOT NULL,
+        ended_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        duration_seconds INTEGER,
+        agent_id TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Migration for call_history call_id
+    const historyTableInfo = this.db.prepare("PRAGMA table_info(call_history)").all() as any[];
+    if (!historyTableInfo.some(col => col.name === 'call_id')) {
+      this.db.exec("ALTER TABLE call_history ADD COLUMN call_id TEXT");
+    }
 
     // Social Connections table
     this.db.exec(`
@@ -196,6 +266,18 @@ export class DatabaseConfig {
         UNIQUE(user_id, platform)
       )
     `);
+
+    // Audit Logs table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        details TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
     
     // Create indexes for better performance
     this.db.exec(`
@@ -210,6 +292,8 @@ export class DatabaseConfig {
       CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
       CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
       CREATE INDEX IF NOT EXISTS idx_social_connections_user_id ON social_connections(user_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp);
     `);
     
     // Create triggers for updated_at timestamps

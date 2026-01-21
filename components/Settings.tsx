@@ -6,7 +6,7 @@ import UniversalDatabaseService from '../services/universalDatabaseService';
 import { ValidationService } from '../services/validationService';
 
 interface Props {
-  profile: BrandProfile;
+  profile?: BrandProfile | null;
   user: User | null;
   onProfileUpdate: (p: BrandProfile) => void;
   onUserUpdate: (u: User) => void;
@@ -17,10 +17,15 @@ interface Props {
 
 const Settings: React.FC<Props> = ({ profile, user, onProfileUpdate, onUserUpdate, darkMode, toggleDarkMode, onClose }) => {
   const [formData, setFormData] = useState<BrandProfile>({
-    ...profile,
-    brandColors: profile.brandColors && profile.brandColors.length > 0 
+    userId: user?.id || '',
+    businessName: profile?.businessName || '',
+    industry: profile?.industry || '',
+    targetAudience: profile?.targetAudience || '',
+    brandVoice: profile?.brandVoice || '',
+    keyThemes: profile?.keyThemes || '',
+    brandColors: profile?.brandColors && profile?.brandColors.length > 0 
       ? profile.brandColors 
-      : ['#10b981', '#3b82f6', '#f59e0b'] // Default brand colors if empty
+      : ['#10b981', '#3b82f6', '#f59e0b']
   });
   
   // Account State
@@ -36,16 +41,18 @@ const Settings: React.FC<Props> = ({ profile, user, onProfileUpdate, onUserUpdat
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'profile' | 'account' | 'billing'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'account' | 'billing'>(user?.role === 'support' ? 'account' : 'profile');
   const [dbService] = useState(() => new UniversalDatabaseService());
 
   useEffect(() => {
-    setFormData({
-      ...profile,
-      brandColors: profile.brandColors && profile.brandColors.length > 0 
-        ? profile.brandColors 
-        : ['#10b981', '#3b82f6', '#f59e0b']
-    });
+    if (profile) {
+      setFormData({
+        ...profile,
+        brandColors: profile.brandColors && profile.brandColors.length > 0 
+          ? profile.brandColors 
+          : ['#10b981', '#3b82f6', '#f59e0b']
+      });
+    }
   }, [profile]);
 
   useEffect(() => {
@@ -188,24 +195,28 @@ const Settings: React.FC<Props> = ({ profile, user, onProfileUpdate, onUserUpdat
            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-4">
               <h3 className="font-bold text-slate-800 dark:text-white mb-4 px-2">Preferences</h3>
               <nav className="space-y-1">
-                 <button 
-                   onClick={() => setActiveTab('profile')}
-                   className={`w-full text-left px-3 py-2 font-medium rounded-lg transition ${activeTab === 'profile' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                 >
-                   Brand Profile
-                 </button>
+                 {user?.role !== 'support' && (
+                   <button 
+                     onClick={() => setActiveTab('profile')}
+                     className={`w-full text-left px-3 py-2 font-medium rounded-lg transition ${activeTab === 'profile' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                   >
+                     Brand Profile
+                   </button>
+                 )}
                  <button 
                    onClick={() => setActiveTab('account')}
                    className={`w-full text-left px-3 py-2 font-medium rounded-lg transition ${activeTab === 'account' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                  >
                    Account
                  </button>
-                 <button 
-                   onClick={() => setActiveTab('billing')}
-                   className={`w-full text-left px-3 py-2 font-medium rounded-lg transition ${activeTab === 'billing' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                 >
-                   Billing
-                 </button>
+                 {user?.role !== 'support' && (
+                   <button 
+                     onClick={() => setActiveTab('billing')}
+                     className={`w-full text-left px-3 py-2 font-medium rounded-lg transition ${activeTab === 'billing' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                   >
+                     Billing
+                   </button>
+                 )}
               </nav>
            </div>
 

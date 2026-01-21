@@ -9,6 +9,14 @@
          For this prototype environment, we use the CDN for rapid styling without a complex build step. -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+      // Suppress Tailwind CDN warning
+      console.warn = (function(orig) {
+        return function() {
+          if (arguments[0] && typeof arguments[0] === 'string' && arguments[0].includes('cdn.tailwindcss.com should not be used in production')) return;
+          orig.apply(this, arguments);
+        };
+      })(console.warn);
+
       tailwind.config = {
         darkMode: 'class',
         theme: {
@@ -82,6 +90,15 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Polyfill global for libraries that expect it (like simple-peer)
+      if (typeof global === 'undefined') {
+        window.global = window;
+      }
+      if (typeof process === 'undefined') {
+        window.process = { env: { NODE_DEBUG: undefined } };
+      }
+    </script>
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>

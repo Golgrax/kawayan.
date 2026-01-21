@@ -129,16 +129,53 @@ export class UniversalDatabaseService {
     return service.getPlan(userId, month);
   }
 
-  async getAdminStats(): Promise<{
+  async getAdminStats(start?: string, end?: string): Promise<{
     totalUsers: number;
     activeUsers: number;
     totalPostsGenerated: number;
     revenue: number;
+    cancelledTransactions: number;
+    pendingTransactions: number;
     revenueData: { name: string; value: number }[];
     churnData: { name: string; value: number }[];
   }> {
     const service = await this.getService();
-    return service.getAdminStats();
+    return service.getAdminStats(start, end);
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    const service = await this.getService();
+    return service.getAllUsers();
+  }
+
+  async getAllTicketsAdmin(): Promise<any[]> {
+    const service = await this.getService();
+    return service.getAllTicketsAdmin();
+  }
+
+  async updateUser(userId: string, data: any): Promise<void> {
+    const service = await this.getService();
+    return service.updateUser(userId, data);
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    const service = await this.getService();
+    return service.deleteUser(userId);
+  }
+
+  async adminAdjustBalance(userId: string, amount: number, reason: string): Promise<void> {
+    const service = await this.getService();
+    return service.adminAdjustBalance(userId, amount, reason);
+  }
+
+  async adminUpdateSubscription(userId: string, plan: string, expiresAt: string): Promise<void> {
+    const service = await this.getService();
+    return service.adminUpdateSubscription(userId, plan, expiresAt);
+  }
+
+  async getAuditLogs(limit: number = 100): Promise<any[]> {
+    const service = await this.getService();
+    return service.getAuditLogs(limit);
   }
 
   async healthCheck(): Promise<{ status: string; timestamp: string }> {

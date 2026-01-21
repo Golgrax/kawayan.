@@ -1,10 +1,12 @@
 export interface User {
   id: string;
   email: string;
-  passwordHash: string; // In a real app, never store plain text. We'll mock this.
+  passwordHash?: string; // In a real app, never store plain text. We'll mock this.
   role: 'user' | 'admin' | 'support';
   businessName?: string;
   theme?: 'light' | 'dark';
+  balance?: number;
+  createdAt?: string;
 }
 
 export interface BrandProfile {

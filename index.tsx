@@ -1,7 +1,13 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import { Buffer } from 'buffer';
 import App from './App';
+
+// Define Buffer globally for simple-peer
+if (typeof window !== 'undefined' && typeof (window as any).Buffer === 'undefined') {
+  (window as any).Buffer = Buffer;
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
