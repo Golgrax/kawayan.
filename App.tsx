@@ -11,6 +11,7 @@ import SupportWidget from './components/SupportWidget';
 import InsightsDashboard from './components/InsightsDashboard';
 import Billing from './components/Billing';
 import SupportDashboard from './components/SupportDashboard';
+import DemoPage from './components/DemoPage';
 import UniversalDatabaseService from './services/universalDatabaseService';
 import { LayoutDashboard, LogOut, Lock, ArrowRight, Settings as SettingsIcon, BarChart3, CreditCard, MessageSquare } from 'lucide-react';
 
@@ -24,38 +25,42 @@ const App: React.FC = () => {
   useEffect(() => {
     console.log('Initializing Kawayan AI App...');
 
-    try {
-      // Check URL params first to see if we need to override the landing view
-      const urlParams = new URLSearchParams(window.location.search);
-      const isPaymentSuccess = urlParams.get('success') === 'true';
+    const initApp = async () => {
+      try {
+        // Check URL params first to see if we need to override the landing view
+        const urlParams = new URLSearchParams(window.location.search);
+        const isPaymentSuccess = urlParams.get('success') === 'true';
 
-      // Check for existing session on load
-      const currentUser = dbService.getCurrentUser();
-      if (currentUser) {
-        console.log('Found existing session for user:', currentUser.email);
-        // Pass ViewState.BILLING if we are coming from a successful payment
-        handleLogin(currentUser, isPaymentSuccess ? ViewState.BILLING : undefined);
-      }
-      
-      // Check URL path or hash for admin back door
-      const path = window.location.pathname;
-      const hash = window.location.hash;
-      
-      if (hash === '#admin-portal' || path === '/admin-portal') {
-        setView(ViewState.ADMIN_LOGIN);
-      }
+        // Check for existing session on load (Async priority for fresh DB data)
+        const currentUser = await dbService.getCurrentUserAsync();
+        if (currentUser) {
+          console.log('Found existing session for user:', currentUser.email);
+          // Set dark mode early to avoid flash
+          if (currentUser.theme === 'dark') {
+            setDarkMode(true);
+          }
+          // Pass ViewState.BILLING if we are coming from a successful payment
+          handleLogin(currentUser, isPaymentSuccess ? ViewState.BILLING : undefined);
+        }
+        
+        // Check URL path or hash for admin back door
+        const path = window.location.pathname;
+        const hash = window.location.hash;
+        
+        if (hash === '#admin-portal' || path === '/admin-portal') {
+          setView(ViewState.ADMIN_LOGIN);
+        }
 
-      if (isPaymentSuccess) {
-        console.log('Detected successful payment redirect');
-        setView(ViewState.BILLING);
+        if (isPaymentSuccess) {
+          console.log('Detected successful payment redirect');
+          setView(ViewState.BILLING);
+        }
+      } catch (error) {
+        console.error('Error initializing app:', error);
       }
+    };
 
-      // Default to Light Mode (Removed auto-detection)
-      setDarkMode(false);
-      
-    } catch (error) {
-      console.error('Error initializing app:', error);
-    }
+    initApp();
   }, []);
 
   // Update HTML class for dark mode
@@ -237,7 +242,7 @@ const App: React.FC = () => {
 
       {/* Main Content */}
       <main className={`flex-grow ${view === ViewState.LOGIN || view === ViewState.SIGNUP || view === ViewState.ADMIN_LOGIN ? 'flex items-center justify-center' : ''}`}>
-        <div className={`w-full ${view === ViewState.CALENDAR || view === ViewState.ADMIN_DASHBOARD || view === ViewState.SETTINGS ? 'max-w-[1600px] mx-auto py-6 px-4 sm:px-6 lg:px-8' : 'w-full'}`}>
+        <div className={`w-full ${view === ViewState.LANDING ? '' : (view === ViewState.CALENDAR || view === ViewState.ADMIN_DASHBOARD || view === ViewState.SETTINGS ? 'max-w-[1600px] mx-auto py-6 px-4 sm:px-6 lg:px-8' : 'w-full')}`}>
           <Routes>
             <Route path="*" element={
               (() => {
@@ -262,8 +267,10 @@ const App: React.FC = () => {
                     return <Billing />;
                   case ViewState.SUPPORT_DASHBOARD:
                     return <SupportDashboard />;
+                  case ViewState.DEMO:
+                    return <DemoPage onNavigate={setView} />;
                   case ViewState.ADMIN_DASHBOARD:
-                    return (user && user.role === 'admin') ? <AdminDashboard /> : <div className="text-center p-10">Access Denied</div>;
+                    return (user && user.role === 'admin') ? <AdminDashboard darkMode={darkMode} toggleTheme={() => updateTheme(!darkMode)} /> : <div className="text-center p-10">Access Denied</div>;
                   default:
                     return <LandingPage onNavigate={setView} />;
                 }

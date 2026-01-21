@@ -173,22 +173,43 @@ app.post('/api/auth/logout', async (req, res) => {
 
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
   const user = req.user;
-  res.json(user);
+  try {
+    const db = dbService['dbConfig'].getDatabase();
+    const row = db.prepare('SELECT id, email, role, business_name, theme FROM users WHERE id = ?').get(user.userId);
+    if (!row) return res.status(404).json({ error: 'User not found' });
+    
+    res.json({
+      id: row.id,
+      email: row.email,
+      role: row.role,
+      businessName: row.business_name,
+      theme: row.theme
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch user data' });
+  }
 });
 
 app.put('/api/auth/theme', authenticateToken, async (req, res) => {
   const { userId, theme } = req.body;
   const user = req.user;
 
+  console.log(`--- THEME UPDATE ATTEMPT ---`);
+  console.log(`Target User ID: ${userId}`);
+  console.log(`New Theme: ${theme}`);
+  console.log(`Requesting User: ${user.email} (${user.userId}, Role: ${user.role})`);
+
   if (userId !== user.userId && user.role !== 'admin') {
+    console.warn(`Unauthorized theme update attempt: ${user.email} tried to update ${userId}`);
     return res.status(403).json({ error: 'Unauthorized' });
   }
 
   try {
     await dbService.updateUserTheme(userId, theme);
+    console.log(`Theme updated in DB for ${userId} to ${theme}`);
     res.json({ message: 'Theme updated successfully' });
   } catch (error) {
-    logger.error('Update theme error', { error: error.message });
+    console.error(`Theme update failed for ${userId}:`, error.message);
     res.status(500).json({ error: 'Failed to update theme' });
   }
 });
@@ -610,7 +631,7 @@ app.get('/api/admin/stats', authenticateToken, requireAdmin, async (req, res) =>
 
 app.get('/api/admin/logs', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limit = parseInt(req.query.limit) || 100;
     const logs = await dbService.getAuditLogs(limit);
     res.json(logs);
   } catch (error) {

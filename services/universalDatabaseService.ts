@@ -99,6 +99,14 @@ export class UniversalDatabaseService {
     }
   }
 
+  async getCurrentUserAsync(): Promise<User | null> {
+    const service = await this.getService();
+    if (service.getCurrentUserAsync) {
+      return service.getCurrentUserAsync();
+    }
+    return this.getCurrentUser();
+  }
+
   async saveProfile(profile: BrandProfile): Promise<void> {
     const service = await this.getService();
     return service.saveProfile(profile);

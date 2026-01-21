@@ -129,6 +129,21 @@ export class ClientDatabaseService {
     }
   }
 
+  async getCurrentUserAsync(): Promise<User | null> {
+    try {
+      const response = await fetch(`${this.baseUrl}/auth/me`, {
+        headers: this.getHeaders()
+      });
+      if (!response.ok) return null;
+      const user = await response.json();
+      // Sync local cache
+      localStorage.setItem('kawayan_session', JSON.stringify(user));
+      return user;
+    } catch (error) {
+      return null;
+    }
+  }
+
   // --- Profiles ---
   async saveProfile(profile: BrandProfile): Promise<void> {
     try {

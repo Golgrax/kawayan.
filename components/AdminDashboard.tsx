@@ -5,7 +5,12 @@ import UniversalDatabaseService from '../services/universalDatabaseService';
 import { supportService } from '../services/supportService';
 import { Ticket, User } from '../types';
 
-const AdminDashboard: React.FC = () => {
+interface Props {
+  darkMode: boolean;
+  toggleTheme: () => void;
+}
+
+const AdminDashboard: React.FC<Props> = ({ darkMode, toggleTheme }) => {
   const [dbService] = useState(() => new UniversalDatabaseService());
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'helpdesk' | 'logs' | 'settings'>('overview');
   
@@ -55,8 +60,6 @@ const AdminDashboard: React.FC = () => {
     password: '',
     confirm: ''
   });
-  
-  const [darkMode, setDarkMode] = useState(document.documentElement.classList.contains('dark'));
 
   useEffect(() => {
     loadData();
@@ -78,16 +81,6 @@ const AdminDashboard: React.FC = () => {
       console.error('Error loading admin data:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const toggleTheme = () => {
-    if (darkMode) {
-      document.documentElement.classList.remove('dark');
-      setDarkMode(false);
-    } else {
-      document.documentElement.classList.add('dark');
-      setDarkMode(true);
     }
   };
 
@@ -681,13 +674,13 @@ const AdminDashboard: React.FC = () => {
                    <h4 className="font-bold text-slate-800 dark:text-white mb-2">Appearance</h4>
                    <div className="flex gap-2">
                      <button 
-                       onClick={() => !darkMode && toggleTheme()}
+                       onClick={() => darkMode && toggleTheme()}
                        className={`flex-1 py-2 rounded-md text-sm font-medium flex items-center justify-center gap-2 transition ${darkMode ? 'bg-white text-slate-800' : 'bg-slate-200 text-slate-500'}`}
                      >
                        <Moon className="w-4 h-4"/> Dark
                      </button>
                      <button 
-                       onClick={() => darkMode && toggleTheme()} 
+                       onClick={() => !darkMode && toggleTheme()} 
                        className={`flex-1 py-2 rounded-md text-sm font-medium flex items-center justify-center gap-2 transition ${!darkMode ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400'}`}
                      >
                        <Sun className="w-4 h-4"/> Light
